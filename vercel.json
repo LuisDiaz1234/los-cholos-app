@@ -1,0 +1,5 @@
+{
+  "crons": [
+    { "path": "/api/generate-shopping-list", "schedule": "0 20 * * *" }
+  ]
+}
