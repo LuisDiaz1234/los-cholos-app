@@ -1,143 +1,177 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
 const PAYMENT_OPTIONS = [
-  { value: 'cash', label: 'Efectivo' },
+  { value: 'cash',  label: 'Efectivo' },
   { value: 'yappy', label: 'Yappy' }
-  // Si mañana quieres agregar tarjeta o nequi, añádelo aquí.
 ];
 
 export default function POS() {
   const [products, setProducts] = useState([]);
-  const [cart, setCart] = useState([]); // {product_id, name, unit_price, quantity}
-  const [loading, setLoading] = useState(true);
+  const [activeCat, setActiveCat] = useState('Todas');
+  const [cart, setCart] = useState([]);
   const [payMethod, setPayMethod] = useState('cash');
-  const [message, setMessage] = useState('');
+  const [msg, setMsg] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
   const load = async () => {
+    setLoading(true);
     const { data, error } = await supabase
       .from('products')
-      .select('id, name, price, stock')
+      .select('id, name, price, stock, category, is_active')
       .eq('is_active', true)
-      .order('name');
+      .order('category', { ascending: true })
+      .order('name', { ascending: true });
     if (error) console.error(error);
     setProducts(data || []);
     setLoading(false);
   };
+  useEffect(()=>{ load(); },[]);
 
-  useEffect(() => { load(); }, []);
+  const cats = useMemo(()=>{
+    const set = new Set(products.map(p => p.category || 'General'));
+    return ['Todas', ...Array.from(set)];
+  }, [products]);
+
+  const productsFiltered = useMemo(()=>{
+    let list = products;
+    if (activeCat !== 'Todas') list = list.filter(p => (p.category||'General') === activeCat);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(p => p.name.toLowerCase().includes(q));
+    }
+    return list;
+  }, [products, activeCat, search]);
+
+  const qtyInCart = (pid) => cart.find(i => i.product_id === pid)?.quantity || 0;
 
   const addToCart = (p) => {
-    if (p.stock <= 0) return; // no permitir agregar sin stock
+    const already = qtyInCart(p.id);
+    if (p.stock - already <= 0) return;
     setCart(prev => {
-      const idx = prev.findIndex(i => i.product_id === p.id);
-      if (idx >= 0) {
-        const maxQty = Math.max(0, p.stock); // evita superar stock
-        const copy = [...prev];
-        const nextQty = Math.min(copy[idx].quantity + 1, maxQty);
-        copy[idx] = { ...copy[idx], quantity: nextQty };
-        return copy;
+      const i = prev.findIndex(x => x.product_id === p.id);
+      if (i >= 0) {
+        const next = [...prev];
+        next[i] = { ...next[i], quantity: next[i].quantity + 1 };
+        return next;
       }
-      return [...prev, { product_id: p.id, name: p.name, unit_price: p.price, quantity: 1 }];
+      return [...prev, { product_id: p.id, name: p.name, unit_price: Number(p.price), quantity: 1 }];
     });
   };
 
-  const changeQty = (product_id, delta) => {
+  const changeQty = (pid, delta) => {
+    const p = products.find(x => x.id === pid);
     setCart(prev => {
-      const prod = products.find(p => p.id === product_id);
-      const maxQty = prod ? Math.max(0, prod.stock) : Infinity;
-      const copy = prev.map(i => {
-        if (i.product_id !== product_id) return i;
-        const next = Math.max(0, Math.min(i.quantity + delta, maxQty));
-        return { ...i, quantity: next };
-      }).filter(i => i.quantity > 0);
-      return copy;
+      const next = prev.map(r => {
+        if (r.product_id !== pid) return r;
+        const want = r.quantity + delta;
+        const max = p ? Math.max(0, Math.floor(p.stock)) : 999;
+        const q = Math.max(0, Math.min(want, max));
+        return { ...r, quantity: q };
+      }).filter(r => r.quantity > 0);
+      return next;
     });
   };
 
-  const total = cart.reduce((s, i) => s + i.quantity * i.unit_price, 0);
+  const total = cart.reduce((s,r)=>s + r.quantity * r.unit_price, 0);
 
   const checkout = async () => {
-    if (cart.length === 0) return setMessage('Agrega productos antes de cobrar.');
-    if (cart.some(it => it.quantity <= 0)) return setMessage('Cantidades inválidas.');
-    setMessage('Procesando venta…');
+    if (cart.length === 0) return setMsg('Agrega productos antes de cobrar.');
+    if (cart.some(i => i.quantity <= 0)) return setMsg('Cantidades inválidas.');
+    setMsg('Procesando...');
     try {
       const res = await fetch('/api/sales', {
         method: 'POST',
         headers: { 'Content-Type':'application/json' },
         body: JSON.stringify({
-          items: cart.map(i => ({ product_id: i.product_id, quantity: i.quantity, unit_price: i.unit_price })),
+          items: cart.map(i => ({
+            product_id: i.product_id,
+            quantity: i.quantity,
+            unit_price: i.unit_price
+          })),
           payment_method: payMethod
         })
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error en venta');
       setCart([]);
-      setMessage(`Venta OK. ID: ${json.sale_id}`);
-      await load(); // refresca stock
+      setMsg(`Venta OK. ID: ${json.sale_id}`);
+      await load();
     } catch (e) {
-      console.error(e);
-      setMessage(`Error: ${e.message}`);
+      console.error(e); setMsg(e.message);
     }
   };
 
-  if (loading) return <div className="card">Cargando productos…</div>;
+  if (loading) return <div className="card">Cargando…</div>;
 
   return (
-    <main className="grid" style={{gap:16}}>
+    <main className="grid" style={{ gap:16 }}>
       <div className="card">
         <h2>Ventas (POS)</h2>
-        <div className="grid cols-4">
-          {products.map(p => (
-            <div key={p.id} className="card">
-              <div style={{fontWeight:600}}>{p.name}</div>
-              <div className="badge">Stock: {Number(p.stock).toFixed(0)}</div>
-              <div style={{margin:'8px 0'}}>B/. {Number(p.price).toFixed(2)}</div>
-              <button
-                className="btn"
-                onClick={() => addToCart(p)}
-                disabled={p.stock <= 0}
-                title={p.stock <= 0 ? 'Sin stock' : 'Agregar'}
-              >
-                {p.stock <= 0 ? 'Sin stock' : 'Agregar'}
-              </button>
-            </div>
+        <div style={{display:'flex', gap:8, flexWrap:'wrap', margin:'8px 0'}}>
+          {cats.map(c => (
+            <button key={c}
+              onClick={()=>setActiveCat(c)}
+              className="btn"
+              style={{ background: activeCat===c ? 'var(--brand-600)' : 'var(--brand)' }}>
+              {c}
+            </button>
           ))}
+          <input className="input" placeholder="Buscar..." value={search} onChange={e=>setSearch(e.target.value)}
+                 style={{ maxWidth:280, marginLeft:'auto' }}/>
+        </div>
+
+        <div className="grid cols-4">
+          {productsFiltered.map(p => {
+            const left = Math.max(0, Math.floor(p.stock) - qtyInCart(p.id));
+            const disabled = left <= 0;
+            return (
+              <div key={p.id} className="card">
+                <div style={{fontWeight:700}}>{p.name}</div>
+                <div className="badge">Stock: {Math.floor(p.stock)}</div>
+                <div style={{margin:'8px 0'}}>B/. {Number(p.price).toFixed(2)}</div>
+                <button className="btn" disabled={disabled} onClick={()=>addToCart(p)}>
+                  {disabled ? 'Sin stock' : 'Agregar'}
+                </button>
+              </div>
+            );
+          })}
         </div>
       </div>
 
       <div className="card">
         <h2>Carrito</h2>
-        {cart.length === 0 ? <div>Vacío</div> : (
+        {cart.length===0 ? <div>Vacío</div> : (
           <table className="table">
             <thead><tr><th>Producto</th><th>Cant</th><th>PU</th><th>Subtot</th><th></th></tr></thead>
             <tbody>
-              {cart.map(i => (
-                <tr key={i.product_id}>
-                  <td>{i.name}</td>
-                  <td>{i.quantity}</td>
-                  <td>B/. {i.unit_price.toFixed(2)}</td>
-                  <td>B/. {(i.quantity*i.unit_price).toFixed(2)}</td>
+              {cart.map(r=>(
+                <tr key={r.product_id}>
+                  <td>{r.name}</td>
+                  <td>{r.quantity}</td>
+                  <td>B/. {r.unit_price.toFixed(2)}</td>
+                  <td>B/. {(r.unit_price*r.quantity).toFixed(2)}</td>
                   <td>
-                    <button className="btn" onClick={() => changeQty(i.product_id, +1)}>+1</button>{' '}
-                    <button className="btn" onClick={() => changeQty(i.product_id, -1)}>-1</button>
+                    <button className="btn" onClick={()=>changeQty(r.product_id,+1)}>+1</button>{' '}
+                    <button className="btn" onClick={()=>changeQty(r.product_id,-1)}>-1</button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:10}}>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:10}}>
           <div>Total: <strong>B/. {total.toFixed(2)}</strong></div>
           <div style={{display:'flex', gap:8, alignItems:'center'}}>
-            <select value={payMethod} onChange={e=>setPayMethod(e.target.value)} className="input" style={{width:180}}>
+            <select className="input" style={{ width:180 }} value={payMethod} onChange={e=>setPayMethod(e.target.value)}>
               {PAYMENT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             <button className="btn" onClick={checkout} disabled={cart.length===0}>Cobrar</button>
           </div>
         </div>
-        {message && <div style={{marginTop:10}}>{message}</div>}
+        {msg && <div style={{marginTop:8}}>{msg}</div>}
       </div>
     </main>
   );
