@@ -6,7 +6,7 @@ export async function POST(req) {
     const { target_date } = await req.json();
     const d = target_date || new Date().toISOString().slice(0,10);
     const supabaseAdmin = getSupabaseAdmin();
-    const { error } = await supabaseAdmin.rpc('generate_shopping_list_for_date', { target_date: d });
+    const { error } = await supabaseAdmin.rpc('generate_shopping_list_for_date', { p_date: d });
     if (error) throw error;
     return new Response(JSON.stringify({ ok:true }), { status:200 });
   } catch (e) {
