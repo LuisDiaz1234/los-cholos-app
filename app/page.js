@@ -2,6 +2,12 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
+const PAYMENT_OPTIONS = [
+  { value: 'cash', label: 'Efectivo' },
+  { value: 'yappy', label: 'Yappy' }
+  // Si mañana quieres agregar tarjeta o nequi, añádelo aquí.
+];
+
 export default function POS() {
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]); // {product_id, name, unit_price, quantity}
@@ -9,26 +15,28 @@ export default function POS() {
   const [payMethod, setPayMethod] = useState('cash');
   const [message, setMessage] = useState('');
 
-  useEffect(() => {
-    const load = async () => {
-      const { data, error } = await supabase
-        .from('products')
-        .select('id, name, price, stock')
-        .eq('is_active', true)
-        .order('name');
-      if (error) console.error(error);
-      setProducts(data || []);
-      setLoading(false);
-    };
-    load();
-  }, []);
+  const load = async () => {
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, name, price, stock')
+      .eq('is_active', true)
+      .order('name');
+    if (error) console.error(error);
+    setProducts(data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, []);
 
   const addToCart = (p) => {
+    if (p.stock <= 0) return; // no permitir agregar sin stock
     setCart(prev => {
       const idx = prev.findIndex(i => i.product_id === p.id);
       if (idx >= 0) {
+        const maxQty = Math.max(0, p.stock); // evita superar stock
         const copy = [...prev];
-        copy[idx] = { ...copy[idx], quantity: copy[idx].quantity + 1 };
+        const nextQty = Math.min(copy[idx].quantity + 1, maxQty);
+        copy[idx] = { ...copy[idx], quantity: nextQty };
         return copy;
       }
       return [...prev, { product_id: p.id, name: p.name, unit_price: p.price, quantity: 1 }];
@@ -37,8 +45,13 @@ export default function POS() {
 
   const changeQty = (product_id, delta) => {
     setCart(prev => {
-      const copy = prev.map(i => i.product_id === product_id ? { ...i, quantity: Math.max(0, i.quantity + delta) } : i)
-                      .filter(i => i.quantity > 0);
+      const prod = products.find(p => p.id === product_id);
+      const maxQty = prod ? Math.max(0, prod.stock) : Infinity;
+      const copy = prev.map(i => {
+        if (i.product_id !== product_id) return i;
+        const next = Math.max(0, Math.min(i.quantity + delta, maxQty));
+        return { ...i, quantity: next };
+      }).filter(i => i.quantity > 0);
       return copy;
     });
   };
@@ -47,6 +60,7 @@ export default function POS() {
 
   const checkout = async () => {
     if (cart.length === 0) return setMessage('Agrega productos antes de cobrar.');
+    if (cart.some(it => it.quantity <= 0)) return setMessage('Cantidades inválidas.');
     setMessage('Procesando venta…');
     try {
       const res = await fetch('/api/sales', {
@@ -61,8 +75,7 @@ export default function POS() {
       if (!res.ok) throw new Error(json.error || 'Error en venta');
       setCart([]);
       setMessage(`Venta OK. ID: ${json.sale_id}`);
-      const { data } = await supabase.from('products').select('id, name, price, stock').eq('is_active', true).order('name');
-      setProducts(data || []);
+      await load(); // refresca stock
     } catch (e) {
       console.error(e);
       setMessage(`Error: ${e.message}`);
@@ -81,7 +94,14 @@ export default function POS() {
               <div style={{fontWeight:600}}>{p.name}</div>
               <div className="badge">Stock: {Number(p.stock).toFixed(0)}</div>
               <div style={{margin:'8px 0'}}>B/. {Number(p.price).toFixed(2)}</div>
-              <button className="btn" onClick={() => addToCart(p)}>Agregar</button>
+              <button
+                className="btn"
+                onClick={() => addToCart(p)}
+                disabled={p.stock <= 0}
+                title={p.stock <= 0 ? 'Sin stock' : 'Agregar'}
+              >
+                {p.stock <= 0 ? 'Sin stock' : 'Agregar'}
+              </button>
             </div>
           ))}
         </div>
@@ -111,11 +131,8 @@ export default function POS() {
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:10}}>
           <div>Total: <strong>B/. {total.toFixed(2)}</strong></div>
           <div style={{display:'flex', gap:8, alignItems:'center'}}>
-            <select value={payMethod} onChange={e=>setPayMethod(e.target.value)} className="input" style={{width:160}}>
-              <option value="cash">Efectivo</option>
-              <option value="card">Tarjeta</option>
-              <option value="yappy">Yappy</option>
-              <option value="nequi">Nequi</option>
+            <select value={payMethod} onChange={e=>setPayMethod(e.target.value)} className="input" style={{width:180}}>
+              {PAYMENT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             <button className="btn" onClick={checkout} disabled={cart.length===0}>Cobrar</button>
           </div>
