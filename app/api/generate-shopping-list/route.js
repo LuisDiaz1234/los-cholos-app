@@ -1,23 +1,13 @@
-import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '../../../lib-server/supabaseAdmin';
+import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 
 export async function POST(req) {
   try {
     const { target_date } = await req.json();
-    const args = {};
-    if (target_date) args.target_date = target_date;
-
-    const { error } = await supabaseAdmin.rpc('generate_shopping_list_for_date', args);
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-
-    return NextResponse.json({ ok: true });
+    const d = target_date || new Date().toISOString().slice(0,10);
+    const { error } = await supabaseAdmin.rpc('generate_shopping_list_for_date', { target_date: d });
+    if (error) throw error;
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
   } catch (e) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return new Response(JSON.stringify({ error: e.message }), { status: 500 });
   }
-}
-
-export async function GET() {
-  const { error } = await supabaseAdmin.rpc('generate_shopping_list_for_date', {});
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ ok: true });
 }
