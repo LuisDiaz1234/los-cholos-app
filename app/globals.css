@@ -1,124 +1,25 @@
-/* ====== Los Cholos — Tema basado en el logo (naranja + negro + blanco) ====== */
 :root{
-  /* Naranja del logo (puedes afinar si tu PNG tiene otro hex muy cercano) */
-  --brand:#F39A1F;      /* naranja principal */
-  --brand-600:#DB891B;  /* hover */
-  --brand-700:#B66F14;  /* active */
-
-  --black:#111111;
-  --bg:#ffffff;         /* fondo claro como el logo */
-  --text:#111827;       /* texto principal (gris muy oscuro) */
-  --muted:#6b7280;      /* texto secundario */
-
-  --panel:#ffffff;      /* tarjetas blancas */
-  --panel-border:#e5e7eb; /* borde sutil gris claro */
-
-  --nav-bg:#111111;     /* barra superior negra como el texto del logo */
-  --nav-text:#ffffff;   /* texto en navbar */
+  --brand:#F39A1F; --brand-600:#DB891B; --brand-700:#B66F14;
+  --bg:#ffffff; --text:#111827; --muted:#6b7280;
+  --panel:#ffffff; --panel-border:#e5e7eb;
+  --nav-bg:#111111; --nav-text:#ffffff;
 }
-
-/* Reset básico */
-*{box-sizing:border-box}
-html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
-  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
-
-/* Contenedor */
+*{box-sizing:border-box} html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
 .container{max-width:1200px;margin:0 auto;padding:24px 20px}
-
-/* Header (navbar) */
-header.card{
-  background:var(--nav-bg);
-  color:var(--nav-text);
-  border:1px solid transparent;
-  border-radius:16px;
-  padding:14px 16px;
-  margin-bottom:16px;
-  box-shadow:0 8px 28px rgba(0,0,0,.25);
-}
+header.card{background:var(--nav-bg);color:var(--nav-text);border-radius:16px;padding:14px 16px;margin-bottom:16px;box-shadow:0 8px 28px rgba(0,0,0,.25)}
 header.card img{border-radius:12px}
-header.card strong{font-size:18px;letter-spacing:.2px}
-.link{
-  color:var(--nav-text);
-  text-decoration:none;
-  padding:8px 10px;
-  border-radius:10px;
-  border:1px solid transparent;
-  transition:all .15s ease;
-}
-.link:hover{
-  color:#fff;
-  border-color:rgba(255,255,255,.15);
-  background:rgba(255,255,255,.06);
-}
-.link:focus{outline:none;box-shadow:0 0 0 3px rgba(243,154,31,.35)}
-
-/* Tarjetas */
-.card{
-  background:var(--panel);
-  border:1px solid var(--panel-border);
-  border-radius:16px;
-  padding:16px;
-  margin-bottom:16px;
-  box-shadow:0 8px 18px rgba(17,17,17,.06);
-}
-
-/* Botones */
-.btn{
-  background:var(--brand);
-  color:#111;
-  font-weight:700;
-  border:none;
-  padding:10px 14px;
-  border-radius:12px;
-  cursor:pointer;
-  transition:transform .03s ease, box-shadow .2s ease, background .2s ease;
-  box-shadow:0 6px 16px rgba(243,154,31,.35);
-}
-.btn:hover{background:var(--brand-600);transform:translateY(-1px)}
-.btn:active{background:var(--brand-700);transform:translateY(0)}
-.btn:disabled{opacity:.6;cursor:not-allowed;box-shadow:none}
-
-/* Inputs y selects */
-.input, select{
-  width:100%;
-  padding:10px 12px;
-  border-radius:12px;
-  border:1px solid var(--panel-border);
-  background:#fff;
-  color:var(--text);
-  outline:none;
-}
-.input:focus, select:focus{
-  border-color:var(--brand);
-  box-shadow:0 0 0 3px rgba(243,154,31,.2);
-}
-
-/* Grillas responsivas */
-.grid{display:grid;gap:12px}
-.grid.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
-.grid.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
-.grid.cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.link{color:var(--nav-text);text-decoration:none;padding:8px 10px;border-radius:10px;border:1px solid transparent}
+.link:hover{border-color:rgba(255,255,255,.15);background:rgba(255,255,255,.06)}
+.card{background:var(--panel);border:1px solid var(--panel-border);border-radius:16px;padding:16px;margin-bottom:16px;box-shadow:0 8px 18px rgba(17,17,17,.06)}
+.btn{background:var(--brand);color:#111;font-weight:700;border:none;padding:10px 14px;border-radius:12px;cursor:pointer;box-shadow:0 6px 16px rgba(243,154,31,.35)}
+.btn:hover{background:var(--brand-600)} .btn:active{background:var(--brand-700)} .btn:disabled{opacity:.6;cursor:not-allowed;box-shadow:none}
+.input, select{width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--panel-border);background:#fff;color:var(--text);outline:none}
+.input:focus, select:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(243,154,31,.2)}
+.grid{display:grid;gap:12px} .grid.cols-2{grid-template-columns:repeat(2,1fr)}
+.grid.cols-3{grid-template-columns:repeat(3,1fr)} .grid.cols-4{grid-template-columns:repeat(4,1fr)}
 @media (max-width:900px){.grid.cols-4{grid-template-columns:repeat(2,1fr)}}
 @media (max-width:600px){.grid.cols-3,.grid.cols-4{grid-template-columns:1fr}}
-
-/* Tablas */
 .table{width:100%;border-collapse:collapse}
 .table th,.table td{padding:10px 12px;border-bottom:1px solid var(--panel-border)}
 .table thead th{color:var(--muted);font-weight:700;text-align:left}
-
-/* Insignias (stock, etc.) en naranja del logo */
-.badge{
-  display:inline-block;
-  padding:4px 8px;
-  border-radius:999px;
-  background:rgba(243,154,31,.12);
-  border:1px solid rgba(243,154,31,.45);
-  color:var(--brand);
-  font-weight:700;
-  font-size:12px;
-}
-
-/* Titulares y pie */
-h1,h2,h3{margin:0 0 10px}
-h2{font-size:20px}
-footer{color:var(--muted)}
+.badge{display:inline-block;padding:4px 8px;border-radius:999px;background:rgba(243,154,31,.12);border:1px solid rgba(243,154,31,.45);color:var(--brand);font-weight:700;font-size:12px}
