@@ -23,3 +23,23 @@ header.card img{border-radius:12px}
 .table th,.table td{padding:10px 12px;border-bottom:1px solid var(--panel-border)}
 .table thead th{color:var(--muted);font-weight:700;text-align:left}
 .badge{display:inline-block;padding:4px 8px;border-radius:999px;background:rgba(243,154,31,.12);border:1px solid rgba(243,154,31,.45);color:var(--brand);font-weight:700;font-size:12px}
+/* === Secciones grandes del POS === */
+.sectionGrid{
+  display:grid;
+  grid-template-columns: repeat(4, minmax(0,1fr));
+  gap:14px;
+}
+@media (max-width:900px){ .sectionGrid{ grid-template-columns:repeat(2,1fr);} }
+@media (max-width:600px){ .sectionGrid{ grid-template-columns:1fr; } }
+
+.sectionCard{
+  display:flex; flex-direction:column; align-items:flex-start;
+  gap:8px; padding:18px; border-radius:18px; border:1px solid var(--panel-border);
+  background:#fff; text-align:left; cursor:pointer;
+  box-shadow:0 8px 18px rgba(17,17,17,.06);
+  transition:transform .06s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.sectionCard:hover{ transform:translateY(-2px); border-color: rgba(243,154,31,.55); box-shadow:0 12px 22px rgba(243,154,31,.18); }
+.sectionIcon{ font-size:28px; line-height:1; }
+.sectionName{ font-weight:800; font-size:18px; }
+.sectionCount{ font-size:12px; color:var(--muted); }
