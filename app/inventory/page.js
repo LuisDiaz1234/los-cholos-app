@@ -2,28 +2,43 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 
+const CATEGORY_OPTIONS = ['Comida','Bebidas','Panadería'];
+
 export default function Inventory() {
   const [rows, setRows] = useState([]);
-  const [name, setName] = useState(''); const [unit, setUnit] = useState('unidad');
-  const [price, setPrice] = useState(''); const [cost, setCost] = useState('');
-  const [par, setPar] = useState(''); const [cat, setCat] = useState('General');
-  const [prodId, setProdId] = useState(''); const [moveType, setMoveType] = useState('IN');
-  const [qty, setQty] = useState(''); const [search, setSearch] = useState('');
-  const [onlyActive, setOnlyActive] = useState(true); const [msg, setMsg] = useState('');
+  const [name, setName] = useState('');
+  const [unit, setUnit] = useState('unidad');
+  const [price, setPrice] = useState('');
+  const [cost, setCost] = useState('');
+  const [par, setPar] = useState('');
+  const [cat, setCat] = useState('Comida');
+  const [customCat, setCustomCat] = useState('');
+  const [prodId, setProdId] = useState('');
+  const [moveType, setMoveType] = useState('IN');
+  const [qty, setQty] = useState('');
+  const [search, setSearch] = useState('');
+  const [onlyActive, setOnlyActive] = useState(true);
+  const [msg, setMsg] = useState('');
+
+  const [editId, setEditId] = useState(null);
+  const [editCat, setEditCat] = useState('Comida');
 
   const load = async () => {
     let q = supabase.from('products').select('id,name,unit,price,cost,stock,par_level,category,is_active').order('category').order('name');
     if (onlyActive) q = q.eq('is_active', true);
-    const { data } = await q; setRows(data||[]);
+    const { data } = await q;
+    setRows(data||[]);
   };
   useEffect(()=>{ load(); }, [onlyActive]);
 
   const save = async () => {
     if (!name || !price) return setMsg('Nombre y precio son requeridos');
+    const category = (cat === '__custom') ? (customCat.trim()||'Comida') : cat;
     const { error } = await supabase.from('products').insert({
-      name, unit, price:Number(price), cost:Number(cost||0), par_level:Number(par||0), category:cat, is_active:true
+      name, unit, price:Number(price), cost:Number(cost||0), par_level:Number(par||0), category, is_active:true
     });
-    if (error) setMsg(error.message); else { setName(''); setUnit('unidad'); setPrice(''); setCost(''); setPar(''); setCat('General'); setMsg('Producto creado'); load(); }
+    if (error) setMsg(error.message);
+    else { setMsg('Producto creado'); setName(''); setUnit('unidad'); setPrice(''); setCost(''); setPar(''); setCat('Comida'); setCustomCat(''); load(); }
   };
 
   const move = async () => {
@@ -43,6 +58,12 @@ export default function Inventory() {
     if (error) setMsg(error.message); else { setMsg('Producto desactivado'); load(); }
   };
 
+  const startEdit = (row) => { setEditId(row.id); setEditCat(row.category || 'Comida'); };
+  const saveEdit = async () => {
+    const { error } = await supabase.from('products').update({ category: editCat }).eq('id', editId);
+    if (error) setMsg(error.message); else { setMsg('Categoría actualizada'); setEditId(null); load(); }
+  };
+
   const filtered = rows.filter(r=>r.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
@@ -56,8 +77,16 @@ export default function Inventory() {
           </select>
           <input className="input" placeholder="Precio" type="number" value={price} onChange={e=>setPrice(e.target.value)}/>
           <input className="input" placeholder="Costo (opcional)" type="number" value={cost} onChange={e=>setCost(e.target.value)}/>
+
           <input className="input" placeholder="Par level" type="number" value={par} onChange={e=>setPar(e.target.value)}/>
-          <input className="input" placeholder="Categoría" value={cat} onChange={e=>setCat(e.target.value)}/>
+
+          {/* Selector de categoría */}
+          <select className="input" value={cat} onChange={e=>setCat(e.target.value)}>
+            {CATEGORY_OPTIONS.map(c=><option key={c} value={c}>{c}</option>)}
+            <option value="__custom">Otra…</option>
+          </select>
+          {cat==='__custom' && <input className="input" placeholder="Nueva categoría" value={customCat} onChange={e=>setCustomCat(e.target.value)}/>}
+
           <button className="btn" onClick={save}>Guardar</button>
         </div>
       </div>
@@ -88,10 +117,27 @@ export default function Inventory() {
           <tbody>
             {filtered.map(r=>(
               <tr key={r.id}>
-                <td>{r.category}</td><td>{r.name}</td><td>{r.unit}</td>
+                <td>
+                  {editId===r.id ? (
+                    <div style={{display:'flex',gap:6}}>
+                      <select className="input" value={editCat} onChange={e=>setEditCat(e.target.value)}>
+                        {CATEGORY_OPTIONS.map(c=><option key={c} value={c}>{c}</option>)}
+                        <option value="General">General</option>
+                      </select>
+                      <button className="btn" onClick={saveEdit}>Guardar</button>
+                      <button className="btn" onClick={()=>setEditId(null)}>Cancelar</button>
+                    </div>
+                  ) : (
+                    r.category || '—'
+                  )}
+                </td>
+                <td>{r.name}</td><td>{r.unit}</td>
                 <td>B/. {Number(r.price).toFixed(2)}</td><td>{Math.floor(r.stock)}</td>
                 <td>{Number(r.par_level||0).toFixed(0)}</td><td>{r.is_active?'Sí':'No'}</td>
-                <td><button className="btn" onClick={()=>softDelete(r.id)}>Eliminar</button></td>
+                <td style={{whiteSpace:'nowrap'}}>
+                  <button className="btn" onClick={()=>startEdit(r)}>Editar</button>{' '}
+                  <button className="btn" onClick={()=>softDelete(r.id)}>Eliminar</button>
+                </td>
               </tr>
             ))}
           </tbody>
