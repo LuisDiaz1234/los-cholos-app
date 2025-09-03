@@ -7,26 +7,51 @@ const PAYMENT_OPTIONS = [
   { value: 'yappy', label: 'Yappy' }
 ];
 
-// Orden recomendado para mostrar las secciones
-const sectionsOrder = [
-  'Salchipapas', 'Hotdogs', 'Empanadas', 'Bebidas', 'Cafés', 'Batidos', 'Promociones', 'General'
-];
+// Secciones principales (orden fijo)
+const BIG_SECTIONS = ['Comida', 'Bebidas', 'Panadería'];
+const sectionIcons = { Comida: '🍽️', Bebidas: '🥤', Panadería: '🥟' };
 
-// Iconos/emoji por sección (opcional)
-const sectionIcons = {
-  Salchipapas: '🍟',
-  Hotdogs: '🌭',
-  Empanadas: '🥟',
-  Bebidas: '🥤',
-  Cafés: '☕️',
-  Batidos: '🥤',
-  Promociones: '⭐',
-  General: '🧾'
+// Palabras clave para inferir sección por NOMBRE
+const K = {
+  bebidas: [
+    'batido', 'refresco', 'soda', 'coca', 'coca cola', 'cola', 'agua',
+    'jugo', 'malta', 'té', ' te ', 'té ', ' cafe', 'café', 'capuchino',
+    'capuccino', 'vaso hielo', 'limonada'
+  ],
+  panaderia: ['empanada', 'empanad', 'pastelito'],
+  comida: ['salchi', 'hot dog', 'hotdog', 'perro', 'promocion', 'promoción']
 };
+
+// Decide sección para un producto usando category o nombre
+function sectionOf(p) {
+  const cat = (p.category || '').trim().toLowerCase();
+  const name = (p.name || '').trim().toLowerCase();
+
+  // Si ya viene bien categorizado, respétalo
+  if (cat === 'comida' || cat === 'bebidas' || cat === 'panadería' || cat === 'panaderia') {
+    if (cat === 'panaderia') return 'Panadería';
+    return cat[0].toUpperCase() + cat.slice(1);
+  }
+
+  // Inferir por nombre
+  const has = (arr) => arr.some(w => name.includes(w));
+
+  if (has(K.bebidas)) return 'Bebidas';
+  if (has(K.panaderia)) return 'Panadería';
+  if (has(K.comida)) return 'Comida';
+
+  // Si la category tiene pistas (p. ej. "Bebidas", "Empanadas", "Hotdogs")
+  if (/bebida|batido|refresco|soda|café|cafe|té|jugo|malta/i.test(p.category || '')) return 'Bebidas';
+  if (/empanada|panader/i.test(p.category || '')) return 'Panadería';
+  if (/salchi|hot ?dog|perro|comida|platos|especial/i.test(p.category || '')) return 'Comida';
+
+  // Por defecto mandamos a Comida (para que no se pierda nada)
+  return 'Comida';
+}
 
 export default function POS() {
   const [products, setProducts] = useState([]);
-  const [activeSection, setActiveSection] = useState(''); // vacío = mostrar secciones
+  const [activeSection, setActiveSection] = useState(''); // vacío => ver tarjetas de secciones
   const [cart, setCart] = useState([]);
   const [payMethod, setPayMethod] = useState('cash');
   const [msg, setMsg] = useState('');
@@ -40,7 +65,6 @@ export default function POS() {
       .from('products')
       .select('id, name, price, stock, category, is_active')
       .eq('is_active', true)
-      .order('category', { ascending: true })
       .order('name', { ascending: true });
     if (error) console.error(error);
     setProducts(data || []);
@@ -48,30 +72,24 @@ export default function POS() {
   };
   useEffect(()=>{ load(); },[]);
 
-  // ===== secciones (por category)
+  // ===== conteo por sección
   const sectionStats = useMemo(()=>{
-    const counts = new Map();
-    (products || []).forEach(p=>{
-      const cat = (p.category || 'General').trim() || 'General';
-      counts.set(cat, (counts.get(cat)||0) + 1);
+    const counts = { Comida:0, Bebidas:0, Panadería:0 };
+    (products || []).forEach(p => {
+      const s = sectionOf(p);
+      if (counts[s] !== undefined) counts[s]++;
     });
-    const arr = Array.from(counts.entries()).map(([name,count])=>({name,count}));
-    // ordenar: primero según sectionsOrder, luego alfabético
-    arr.sort((a,b)=>{
-      const ia = sectionsOrder.indexOf(a.name); const ib = sectionsOrder.indexOf(b.name);
-      if (ia !== -1 || ib !== -1) return (ia===-1?999:ia) - (ib===-1?999:ib);
-      return a.name.localeCompare(b.name);
-    });
-    return arr;
+    return BIG_SECTIONS
+      .map(name => ({ name, count: counts[name] }))
+      .filter(s => s.count > 0);
   }, [products]);
 
-  // ===== lista de productos (filtrada por sección + búsqueda)
+  // ===== lista de productos de la sección activa + búsqueda
   const list = useMemo(()=>{
-    let l = products;
-    if (activeSection) l = l.filter(p => (p.category || 'General') === activeSection);
+    let l = products.filter(p => sectionOf(p) === (activeSection || 'Comida'));
     if (search.trim()) l = l.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
     return l;
-  }, [products, activeSection, search]);
+  },[products, activeSection, search]);
 
   // ===== carrito
   const qtyInCart = pid => cart.find(i=>i.product_id===pid)?.quantity || 0;
@@ -118,9 +136,7 @@ export default function POS() {
       if(!res.ok) throw new Error(json.error||'Error en venta');
       setCart([]); setMsg(`Venta OK. ID: ${json.sale_id}`);
       await load();
-      // tras cobrar, vuelve a las secciones (práctico para caja)
-      setActiveSection('');
-      setSearch('');
+      setActiveSection(''); setSearch('');
     }catch(e){ setMsg(e.message); }
   };
 
@@ -131,7 +147,7 @@ export default function POS() {
       <div className="card">
         <h2>Ventas (POS)</h2>
 
-        {/* ===== Vista de SECCIONES GRANDES ===== */}
+        {/* ===== Tarjetas de SECCIONES ===== */}
         {!activeSection && (
           <>
             <div style={{margin:'8px 0 12px', color:'var(--muted)'}}>Elige una sección</div>
@@ -143,7 +159,7 @@ export default function POS() {
                   onClick={()=>setActiveSection(s.name)}
                   title={`${s.count} productos`}
                 >
-                  <div className="sectionIcon">{sectionIcons[s.name] || '🧾'}</div>
+                  <div className="sectionIcon">{sectionIcons[s.name]}</div>
                   <div className="sectionName">{s.name}</div>
                   <div className="sectionCount">{s.count} ítems</div>
                 </button>
@@ -152,7 +168,7 @@ export default function POS() {
           </>
         )}
 
-        {/* ===== Vista de PRODUCTOS dentro de una sección ===== */}
+        {/* ===== Productos de la sección ===== */}
         {activeSection && (
           <>
             <div style={{display:'flex',gap:8,alignItems:'center',margin:'8px 0 12px'}}>
