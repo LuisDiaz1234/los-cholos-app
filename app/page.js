@@ -7,6 +7,8 @@ const PAYMENT_OPTIONS = [
   { value: 'yappy', label: 'Yappy' }
 ];
 
+const DAILY_GOAL = Number(process.env.NEXT_PUBLIC_DAILY_GOAL || 220);
+
 // Secciones principales (orden fijo)
 const BIG_SECTIONS = ['Comida', 'Bebidas', 'Panadería'];
 const sectionIcons = { Comida: '🍽️', Bebidas: '🥤', Panadería: '🥟' };
@@ -14,51 +16,45 @@ const sectionIcons = { Comida: '🍽️', Bebidas: '🥤', Panadería: '🥟' };
 // Palabras clave para inferir sección por NOMBRE
 const K = {
   bebidas: [
-    'batido', 'refresco', 'soda', 'coca', 'coca cola', 'cola', 'agua',
-    'jugo', 'malta', 'té', ' te ', 'té ', ' cafe', 'café', 'capuchino',
-    'capuccino', 'vaso hielo', 'limonada'
+    'batido','refresco','soda','coca','coca cola','cola','agua','jugo','malta','té',' te ','café',' cafe ',
+    'capuchino','capuccino','limonada','vaso hielo','canadadry','canada dry','ginger ale','sprite','fanta','pepsi'
   ],
-  panaderia: ['empanada', 'empanad', 'pastelito'],
-  comida: ['salchi', 'hot dog', 'hotdog', 'perro', 'promocion', 'promoción']
+  panaderia: ['empanada','empanad','pastelito'],
+  comida: ['salchi','hot dog','hotdog','perro','promocion','promoción','orden','media orden']
 };
 
-// Decide sección para un producto usando category o nombre
 function sectionOf(p) {
   const cat = (p.category || '').trim().toLowerCase();
   const name = (p.name || '').trim().toLowerCase();
 
-  // Si ya viene bien categorizado, respétalo
   if (cat === 'comida' || cat === 'bebidas' || cat === 'panadería' || cat === 'panaderia') {
     if (cat === 'panaderia') return 'Panadería';
     return cat[0].toUpperCase() + cat.slice(1);
   }
-
-  // Inferir por nombre
   const has = (arr) => arr.some(w => name.includes(w));
-
   if (has(K.bebidas)) return 'Bebidas';
   if (has(K.panaderia)) return 'Panadería';
   if (has(K.comida)) return 'Comida';
 
-  // Si la category tiene pistas (p. ej. "Bebidas", "Empanadas", "Hotdogs")
   if (/bebida|batido|refresco|soda|café|cafe|té|jugo|malta/i.test(p.category || '')) return 'Bebidas';
   if (/empanada|panader/i.test(p.category || '')) return 'Panadería';
-  if (/salchi|hot ?dog|perro|comida|platos|especial/i.test(p.category || '')) return 'Comida';
+  if (/salchi|hot ?dog|perro|comida|platos|especial|orden/i.test(p.category || '')) return 'Comida';
 
-  // Por defecto mandamos a Comida (para que no se pierda nada)
   return 'Comida';
 }
 
+const isoToday = () => new Date().toISOString().slice(0,10);
+
 export default function POS() {
   const [products, setProducts] = useState([]);
-  const [activeSection, setActiveSection] = useState(''); // vacío => ver tarjetas de secciones
+  const [activeSection, setActiveSection] = useState('');
   const [cart, setCart] = useState([]);
   const [payMethod, setPayMethod] = useState('cash');
   const [msg, setMsg] = useState('');
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [todaySales, setTodaySales] = useState(0);
 
-  // ===== cargar productos
   const load = async () => {
     setLoading(true);
     const { data, error } = await supabase
@@ -70,28 +66,30 @@ export default function POS() {
     setProducts(data || []);
     setLoading(false);
   };
-  useEffect(()=>{ load(); },[]);
 
-  // ===== conteo por sección
+  const loadToday = async () => {
+    const { data, error } = await supabase
+      .from('sales')
+      .select('total')
+      .eq('sale_date', isoToday());
+    if (error) { console.error(error); return; }
+    setTodaySales((data||[]).reduce((s,r)=>s+Number(r.total||0),0));
+  };
+
+  useEffect(()=>{ load(); loadToday(); },[]);
+
   const sectionStats = useMemo(()=>{
     const counts = { Comida:0, Bebidas:0, Panadería:0 };
-    (products || []).forEach(p => {
-      const s = sectionOf(p);
-      if (counts[s] !== undefined) counts[s]++;
-    });
-    return BIG_SECTIONS
-      .map(name => ({ name, count: counts[name] }))
-      .filter(s => s.count > 0);
+    (products || []).forEach(p => { const s = sectionOf(p); counts[s] = (counts[s]||0)+1; });
+    return BIG_SECTIONS.map(name => ({ name, count: counts[name]||0 })).filter(s => s.count>0);
   }, [products]);
 
-  // ===== lista de productos de la sección activa + búsqueda
   const list = useMemo(()=>{
     let l = products.filter(p => sectionOf(p) === (activeSection || 'Comida'));
     if (search.trim()) l = l.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
     return l;
   },[products, activeSection, search]);
 
-  // ===== carrito
   const qtyInCart = pid => cart.find(i=>i.product_id===pid)?.quantity || 0;
 
   const add = (p) => {
@@ -136,9 +134,13 @@ export default function POS() {
       if(!res.ok) throw new Error(json.error||'Error en venta');
       setCart([]); setMsg(`Venta OK. ID: ${json.sale_id}`);
       await load();
+      await loadToday();
       setActiveSection(''); setSearch('');
     }catch(e){ setMsg(e.message); }
   };
+
+  const goalPct = Math.min(100, Math.round((todaySales / DAILY_GOAL) * 100));
+  const remaining = Math.max(0, DAILY_GOAL - todaySales);
 
   if (loading) return <div className="card">Cargando…</div>;
 
@@ -147,7 +149,18 @@ export default function POS() {
       <div className="card">
         <h2>Ventas (POS)</h2>
 
-        {/* ===== Tarjetas de SECCIONES ===== */}
+        {/* META DIARIA */}
+        <div className="goal">
+          <div className="goal-row">
+            <div>Meta diaria: <strong>B/. {DAILY_GOAL.toFixed(2)}</strong></div>
+            <div>Hoy: <strong>B/. {todaySales.toFixed(2)}</strong></div>
+            <div>Faltan: <strong>B/. {remaining.toFixed(2)}</strong></div>
+          </div>
+          <div className="progress"><span style={{width:`${goalPct}%`}}/></div>
+          <div className="goal-hint">{goalPct}% de la meta</div>
+        </div>
+
+        {/* SECCIONES */}
         {!activeSection && (
           <>
             <div style={{margin:'8px 0 12px', color:'var(--muted)'}}>Elige una sección</div>
@@ -168,7 +181,7 @@ export default function POS() {
           </>
         )}
 
-        {/* ===== Productos de la sección ===== */}
+        {/* PRODUCTOS */}
         {activeSection && (
           <>
             <div style={{display:'flex',gap:8,alignItems:'center',margin:'8px 0 12px'}}>
@@ -197,7 +210,7 @@ export default function POS() {
         )}
       </div>
 
-      {/* ===== Carrito ===== */}
+      {/* CARRITO */}
       <div className="card">
         <h2>Carrito</h2>
         {cart.length===0 ? <div>Vacío</div> : (
