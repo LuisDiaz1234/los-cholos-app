@@ -7,15 +7,33 @@ const PAYMENT_OPTIONS = [
   { value: 'yappy', label: 'Yappy' }
 ];
 
+// Orden recomendado para mostrar las secciones
+const sectionsOrder = [
+  'Salchipapas', 'Hotdogs', 'Empanadas', 'Bebidas', 'Cafés', 'Batidos', 'Promociones', 'General'
+];
+
+// Iconos/emoji por sección (opcional)
+const sectionIcons = {
+  Salchipapas: '🍟',
+  Hotdogs: '🌭',
+  Empanadas: '🥟',
+  Bebidas: '🥤',
+  Cafés: '☕️',
+  Batidos: '🥤',
+  Promociones: '⭐',
+  General: '🧾'
+};
+
 export default function POS() {
   const [products, setProducts] = useState([]);
-  const [activeCat, setActiveCat] = useState('Todas');
+  const [activeSection, setActiveSection] = useState(''); // vacío = mostrar secciones
   const [cart, setCart] = useState([]);
   const [payMethod, setPayMethod] = useState('cash');
   const [msg, setMsg] = useState('');
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
+  // ===== cargar productos
   const load = async () => {
     setLoading(true);
     const { data, error } = await supabase
@@ -30,18 +48,32 @@ export default function POS() {
   };
   useEffect(()=>{ load(); },[]);
 
-  const cats = useMemo(()=>{
-    const s = new Set(products.map(p=>p.category||'General'));
-    return ['Todas', ...Array.from(s)];
-  },[products]);
+  // ===== secciones (por category)
+  const sectionStats = useMemo(()=>{
+    const counts = new Map();
+    (products || []).forEach(p=>{
+      const cat = (p.category || 'General').trim() || 'General';
+      counts.set(cat, (counts.get(cat)||0) + 1);
+    });
+    const arr = Array.from(counts.entries()).map(([name,count])=>({name,count}));
+    // ordenar: primero según sectionsOrder, luego alfabético
+    arr.sort((a,b)=>{
+      const ia = sectionsOrder.indexOf(a.name); const ib = sectionsOrder.indexOf(b.name);
+      if (ia !== -1 || ib !== -1) return (ia===-1?999:ia) - (ib===-1?999:ib);
+      return a.name.localeCompare(b.name);
+    });
+    return arr;
+  }, [products]);
 
+  // ===== lista de productos (filtrada por sección + búsqueda)
   const list = useMemo(()=>{
     let l = products;
-    if (activeCat!=='Todas') l = l.filter(p => (p.category||'General')===activeCat);
+    if (activeSection) l = l.filter(p => (p.category || 'General') === activeSection);
     if (search.trim()) l = l.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
     return l;
-  },[products,activeCat,search]);
+  }, [products, activeSection, search]);
 
+  // ===== carrito
   const qtyInCart = pid => cart.find(i=>i.product_id===pid)?.quantity || 0;
 
   const add = (p) => {
@@ -84,7 +116,11 @@ export default function POS() {
       });
       const json = await res.json();
       if(!res.ok) throw new Error(json.error||'Error en venta');
-      setCart([]); setMsg(`Venta OK. ID: ${json.sale_id}`); await load();
+      setCart([]); setMsg(`Venta OK. ID: ${json.sale_id}`);
+      await load();
+      // tras cobrar, vuelve a las secciones (práctico para caja)
+      setActiveSection('');
+      setSearch('');
     }catch(e){ setMsg(e.message); }
   };
 
@@ -94,28 +130,58 @@ export default function POS() {
     <main className="grid" style={{gap:16}}>
       <div className="card">
         <h2>Ventas (POS)</h2>
-        <div style={{display:'flex',gap:8,flexWrap:'wrap',margin:'8px 0'}}>
-          {cats.map(c=>(
-            <button key={c} className="btn" onClick={()=>setActiveCat(c)} style={{background:activeCat===c?'var(--brand-600)':'var(--brand)'}}>{c}</button>
-          ))}
-          <input className="input" placeholder="Buscar..." value={search} onChange={e=>setSearch(e.target.value)} style={{maxWidth:280, marginLeft:'auto'}}/>
-        </div>
-        <div className="grid cols-4">
-          {list.map(p=>{
-            const left = Math.max(0, Math.floor(p.stock)-qtyInCart(p.id));
-            const disabled = left<=0;
-            return (
-              <div key={p.id} className="card">
-                <div style={{fontWeight:700}}>{p.name}</div>
-                <div className="badge">Stock: {Math.floor(p.stock)}</div>
-                <div style={{margin:'8px 0'}}>B/. {Number(p.price).toFixed(2)}</div>
-                <button className="btn" disabled={disabled} onClick={()=>add(p)}>{disabled?'Sin stock':'Agregar'}</button>
-              </div>
-            );
-          })}
-        </div>
+
+        {/* ===== Vista de SECCIONES GRANDES ===== */}
+        {!activeSection && (
+          <>
+            <div style={{margin:'8px 0 12px', color:'var(--muted)'}}>Elige una sección</div>
+            <div className="sectionGrid">
+              {sectionStats.map(s=>(
+                <button
+                  key={s.name}
+                  className="sectionCard"
+                  onClick={()=>setActiveSection(s.name)}
+                  title={`${s.count} productos`}
+                >
+                  <div className="sectionIcon">{sectionIcons[s.name] || '🧾'}</div>
+                  <div className="sectionName">{s.name}</div>
+                  <div className="sectionCount">{s.count} ítems</div>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* ===== Vista de PRODUCTOS dentro de una sección ===== */}
+        {activeSection && (
+          <>
+            <div style={{display:'flex',gap:8,alignItems:'center',margin:'8px 0 12px'}}>
+              <button className="btn" onClick={()=>{ setActiveSection(''); setSearch(''); }}>← Secciones</button>
+              <div style={{fontWeight:700}}>Sección: {activeSection}</div>
+              <input className="input" placeholder="Buscar..." value={search} onChange={e=>setSearch(e.target.value)} style={{maxWidth:280, marginLeft:'auto'}}/>
+            </div>
+            <div className="grid cols-4">
+              {list.map(p=>{
+                const left = Math.max(0, Math.floor(p.stock)-qtyInCart(p.id));
+                const disabled = left<=0;
+                return (
+                  <div key={p.id} className="card">
+                    <div style={{fontWeight:700}}>{p.name}</div>
+                    <div className="badge">Stock: {Math.floor(p.stock)}</div>
+                    <div style={{margin:'8px 0'}}>B/. {Number(p.price).toFixed(2)}</div>
+                    <button className="btn" disabled={disabled} onClick={()=>add(p)}>{disabled?'Sin stock':'Agregar'}</button>
+                  </div>
+                );
+              })}
+              {list.length===0 && (
+                <div className="card" style={{gridColumn:'1/-1'}}>No hay productos en esta sección.</div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
+      {/* ===== Carrito ===== */}
       <div className="card">
         <h2>Carrito</h2>
         {cart.length===0 ? <div>Vacío</div> : (
