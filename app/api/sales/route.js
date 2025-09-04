@@ -1,38 +1,46 @@
+// app/api/sales/route.js
+import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '../../../lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function POST(req){
-  try{
-    const supabaseAdmin = getSupabaseAdmin();
-    const auth = req.headers.get('authorization') || '';
-    const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+export async function POST(req) {
+  try {
+    const body = await req.json();
+    const items = Array.isArray(body.items) ? body.items : [];
+    const payment_method = body.payment_method || 'cash';
+    const shift_id = body.shift_id ?? null; // opcional
 
-    let cashier_id = null;
-    if (token) {
-      const { data } = await supabaseAdmin.auth.getUser(token);
-      cashier_id = data?.user?.id || null;
+    if (items.length === 0) {
+      return NextResponse.json({ error: 'No items' }, { status: 400 });
     }
 
-    const { items, payment_method } = await req.json();
-    if (!items || !Array.isArray(items) || items.length===0) {
-      return new Response(JSON.stringify({ error:'items vacíos' }), { status:400 });
-    }
+    const supabase = getSupabaseAdmin();
 
-    // Llama a tu función de BD que ya descuenta stock/ingredientes y crea venta
-    // Ajusta el nombre si tu RPC se llama distinto:
-    const { data: sale_id, error } = await supabaseAdmin
-      .rpc('create_sale_with_inventory', { items, payment_method });
+    // Ajusta los nombres de parámetros al de tu función SQL
+    // Si tu función es create_sale(p_items jsonb, p_method text, p_shift uuid)
+    const { data, error } = await supabase.rpc('create_sale', {
+      p_items: items.map(i => ({
+        product_id: i.product_id,
+        qty: i.quantity,          // ojo: tu SQL usa qty
+        unit_price: i.unit_price
+      })),
+      p_method: payment_method,
+      p_shift: shift_id
+    });
 
     if (error) throw error;
 
-    if (cashier_id && sale_id) {
-      await supabaseAdmin.from('sales').update({ cashier_id }).eq('id', sale_id);
+    // Asegúrate de que tu función retorne el id de la venta:
+    // RETURN v_sale_id;  -- uuid
+    const sale_id = data?.sale_id || data || null;
+    if (!sale_id) {
+      return NextResponse.json({ error: 'No sale_id returned' }, { status: 500 });
     }
 
-    return new Response(JSON.stringify({ sale_id }), { status:200 });
-  }catch(e){
-    return new Response(JSON.stringify({ error: e.message }), { status:500 });
+    return NextResponse.json({ ok: true, sale_id }, { status: 200 });
+  } catch (e) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
