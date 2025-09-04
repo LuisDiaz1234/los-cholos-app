@@ -18,16 +18,10 @@ export default function LoginPage() {
 
   async function onSubmit(e) {
     e.preventDefault();
-    setBusy(true);
-    setMsg('Accediendo…');
+    setBusy(true); setMsg('Accediendo…');
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email, password: pass
-    });
+    const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
     if (error) { setBusy(false); setMsg('Error: ' + error.message); return; }
-
-    const { data:{ session } } = await supabase.auth.getSession();
-    if (!session) { setBusy(false); setMsg('No se pudo crear sesión. Revisa email/clave.'); return; }
 
     setMsg('OK. Redirigiendo…');
     router.replace('/');
