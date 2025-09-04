@@ -13,7 +13,10 @@ export default function ReceiptPage({ params }){
     (async ()=>{
       const { data: s } = await supabase.from('sales').select('*').eq('id', saleId).maybeSingle();
       setSale(s||null);
-      const { data: it } = await supabase.from('sale_items').select('product_id, qty, unit_price, products(name)').eq('sale_id', saleId);
+      const { data: it } = await supabase
+        .from('sale_items')
+        .select('product_id, qty, unit_price, products(name)')
+        .eq('sale_id', saleId);
       setItems(it||[]);
     })();
   }, [saleId]);
