@@ -1,10 +1,11 @@
 'use client';
+export const dynamic = 'force-dynamic';
+
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useRequireAuth } from '../lib/useRequireAuth';
 
-
-// ====== Config ======
+/* ================= Config ================= */
 const PAYMENT_OPTIONS = [
   { value: 'cash', label: 'Efectivo' },
   { value: 'yappy', label: 'Yappy' }
@@ -23,7 +24,7 @@ const K = {
   comida: ['salchi','hot dog','hotdog','perro','promocion','promoción','orden','media orden']
 };
 
-// ====== Helpers ======
+/* ================= Helpers ================= */
 function localDateYYYYMMDD(d=new Date()){
   const off = d.getTimezoneOffset()*60000;
   return new Date(d - off).toISOString().slice(0,10);
@@ -49,7 +50,7 @@ function sectionOf(p) {
   return 'Comida';
 }
 
-// ====== Página POS ======
+/* ================= Página POS ================= */
 export default function POS() {
   // Requiere sesión (si no hay, redirige a /login)
   const auth = useRequireAuth();
@@ -64,7 +65,7 @@ export default function POS() {
   const [search, setSearch] = useState('');
   const [todaySales, setTodaySales] = useState(0);
 
-  // ====== Carga de datos ======
+  /* ====== Carga de datos ====== */
   const loadProducts = async () => {
     setLoading(true);
     const { data, error } = await supabase
@@ -86,7 +87,7 @@ export default function POS() {
 
   useEffect(() => { loadProducts(); loadToday(); }, []);
 
-  // ====== Atajos de teclado ======
+  /* ====== Atajos de teclado ====== */
   useEffect(()=>{
     const onKey = (e)=>{
       if (e.key === 'Enter') { e.preventDefault(); checkout(); }
@@ -101,7 +102,7 @@ export default function POS() {
     return ()=>window.removeEventListener('keydown', onKey);
   }, [cart]);
 
-  // ====== Secciones y listado ======
+  /* ====== Secciones y listado ====== */
   const sectionStats = useMemo(()=>{
     const counts = { Comida:0, Bebidas:0, Panadería:0 };
     (products||[]).forEach(p=>{ counts[sectionOf(p)]++; });
@@ -114,7 +115,7 @@ export default function POS() {
     return l;
   },[products, activeSection, search]);
 
-  // ====== Carrito ======
+  /* ====== Carrito ====== */
   const qtyInCart = pid => cart.find(i=>i.product_id===pid)?.quantity || 0;
 
   const add = (p) => {
@@ -142,7 +143,7 @@ export default function POS() {
 
   const total = cart.reduce((s,r)=>s+r.quantity*r.unit_price,0);
 
-  // ====== Checkout (envía token y abre recibo) ======
+  /* ====== Checkout (envía token y abre recibo) ====== */
   const checkout = async () => {
     if (cart.length === 0) {
       setMsg('Agrega productos antes de cobrar.');
@@ -152,7 +153,7 @@ export default function POS() {
 
     try {
       // 1) Tomar el access_token del usuario logueado
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session} } = await supabase.auth.getSession();
       const token = session?.access_token || '';
 
       // 2) Enviar la venta a la API con Authorization: Bearer <token>
@@ -191,13 +192,13 @@ export default function POS() {
     }
   };
 
-  // ====== Meta diaria ======
+  /* ====== Meta diaria ====== */
   const goalPct = Math.min(100, Math.round((todaySales / DAILY_GOAL) * 100));
   const remaining = Math.max(0, DAILY_GOAL - todaySales);
 
   if (loading) return <div className="card">Cargando…</div>;
 
-  // ====== UI ======
+  /* ================= UI ================= */
   return (
     <main className="grid" style={{gap:16}}>
       <div className="card">
