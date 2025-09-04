@@ -1,4 +1,5 @@
 'use client';
+
 import { useEffect, useState } from 'react';
 import { supabase } from '../../../lib/supabaseClient';
 
@@ -11,54 +12,51 @@ export default function ReceiptPage({ params }) {
   useEffect(() => {
     async function load() {
       setLoading(true);
-
-      const { data: s, error: e1 } = await supabase
+      const { data: saleRow } = await supabase
         .from('sales')
         .select('id, sale_date, total, payment_method')
         .eq('id', id)
         .maybeSingle();
 
-      const { data: it, error: e2 } = await supabase
+      const { data: itemRows } = await supabase
         .from('sale_items')
         .select('product_name, qty, unit_price, subtotal')
         .eq('sale_id', id)
         .order('product_name');
 
-      if (!e1 && !e2) {
-        setSale(s || null);
-        setItems(it || []);
-      }
+      setSale(saleRow || null);
+      setItems(itemRows || []);
       setLoading(false);
     }
     load();
   }, [id]);
 
-  if (loading) return <div className="card">Cargando...</div>;
-  if (!sale) return <div className="card">No se encontró la venta.</div>;
+  if (loading) return <main className="card">Cargando recibo…</main>;
+  if (!sale) return <main className="card">No existe la venta.</main>;
 
   return (
-    <main className="receipt">
-      <h2>Recibo #{sale.id}</h2>
+    <main className="card" style={{ maxWidth: 680, margin: '24px auto' }}>
+      <h2>Recibo #{sale.id.slice(0,8)}</h2>
       <div>Fecha: {sale.sale_date}</div>
       <div>Método: {sale.payment_method}</div>
 
       <table className="table" style={{ marginTop: 12 }}>
-        <thead>
-          <tr><th>Producto</th><th>Cant</th><th>PU</th><th>Subtot</th></tr>
-        </thead>
+        <thead><tr><th>Producto</th><th>Cant</th><th>PU</th><th>Subtot</th></tr></thead>
         <tbody>
-          {items.map((r, i) => (
+          {items.map((it, i) => (
             <tr key={i}>
-              <td>{r.product_name}</td>
-              <td>{r.qty}</td>
-              <td>B/. {Number(r.unit_price).toFixed(2)}</td>
-              <td>B/. {Number(r.subtotal).toFixed(2)}</td>
+              <td>{it.product_name}</td>
+              <td>{Number(it.qty).toFixed(0)}</td>
+              <td>B/. {Number(it.unit_price).toFixed(2)}</td>
+              <td>B/. {Number(it.subtotal).toFixed(2)}</td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      <h3 style={{ textAlign: 'right' }}>Total: B/. {Number(sale.total).toFixed(2)}</h3>
+      <div style={{ textAlign: 'right', marginTop: 8 }}>
+        <strong>Total: B/. {Number(sale.total).toFixed(2)}</strong>
+      </div>
     </main>
   );
 }
