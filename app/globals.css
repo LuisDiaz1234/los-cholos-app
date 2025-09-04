@@ -65,4 +65,12 @@ header.card img{border-radius:12px}
 .hbar-row{display:grid;grid-template-columns:120px 1fr 100px;gap:8px;align-items:center}
 .hbar-track{background:#f3f4f6;border-radius:999px;height:10px;overflow:hidden}
 .hbar-track>span{display:block;height:100%;background:var(--brand)}
+/* Ticket 58mm */
+@media print {
+  body.ticket .card { box-shadow:none; border:none }
+}
+body.ticket { width:58mm; margin:0 auto; }
+body.ticket * { font-size:12px !important }
+body.ticket table { width:100% }
+body.ticket img { max-width:100% }
 
