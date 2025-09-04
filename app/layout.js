@@ -1,36 +1,36 @@
+// app/layout.js
 import './globals.css';
 import Link from 'next/link';
+import UserMenu from '@/components/UserMenu';
 
-export const metadata = {
-  title: 'Los Cholos',
-  description: 'POS, inventario, caja, recetas y compras',
-  icons: { icon: '/logo.png' }
-};
+export const metadata = { title: 'Los Cholos — Panel' };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="es">
       <body>
-        <div className="container">
-          <header className="card" style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-            <div style={{display:'flex',gap:12,alignItems:'center'}}>
-              <img src="/logo.png" alt="Los Cholos" width={40} height={40}/>
-              <strong>Los Cholos — Panel</strong>
-            </div>
-            <nav style={{display:'flex',gap:10,flexWrap:'wrap'}}>
-              <Link className="link" href="/">Ventas</Link>
-              <Link className="link" href="/dashboard">Dashboard</Link>
-              <Link className="link" href="/sales">Ventas (historial)</Link>
-              <Link className="link" href="/inventory">Inventario</Link>
-              <Link className="link" href="/ingredients">Ingredientes</Link>
-              <Link className="link" href="/recipes">Recetas</Link>
-              <Link className="link" href="/cash">Cierre de caja</Link>
-              <Link className="link" href="/shopping-list">Lista de compras</Link>
+        <header className="topbar">
+          <div className="topbar-inner">
+            <Link href="/" className="brand">
+              <img src="/logo.png" alt="Los Cholos" style={{height:28}}/>
+              <span>Los Cholos — <strong>Panel</strong></span>
+            </Link>
+            <nav className="nav">
+              <Link href="/">Ventas</Link>
+              <Link href="/dashboard" className="only-admin">Dashboard</Link>
+              <Link href="/sales">Ventas (historial)</Link>
+              <Link href="/inventory">Inventario</Link>
+              <Link href="/ingredients">Ingredientes</Link>
+              <Link href="/recipes">Recetas</Link>
+              <Link href="/shopping">Lista de compras</Link>
+              <Link href="/shifts">Turnos</Link>
             </nav>
-          </header>
-          {children}
-          <footer style={{textAlign:'center',opacity:.6,fontSize:12,padding:'12px'}}>© {new Date().getFullYear()} Los Cholos</footer>
-        </div>
+            <UserMenu/>
+          </div>
+        </header>
+        <main className="container">{children}</main>
+        <footer className="foot">© 2025 Los Cholos</footer>
+        {/* Esconde links solo-admin si no hay rol admin (CSS trivial, lo hacemos por JS en cada página crítica) */}
       </body>
     </html>
   );
