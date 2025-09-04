@@ -52,7 +52,6 @@ function sectionOf(p) {
 
 /* ================= Página POS ================= */
 export default function POS() {
-  // Requiere sesión (si no hay, redirige a /login)
   const auth = useRequireAuth();
   if (auth !== 'ok') return null;
 
@@ -143,20 +142,15 @@ export default function POS() {
 
   const total = cart.reduce((s,r)=>s+r.quantity*r.unit_price,0);
 
-  /* ====== Checkout (envía token y abre recibo) ====== */
+  /* ====== Checkout ====== */
   const checkout = async () => {
-    if (cart.length === 0) {
-      setMsg('Agrega productos antes de cobrar.');
-      return;
-    }
+    if (cart.length === 0) { setMsg('Agrega productos antes de cobrar.'); return; }
     setMsg('Procesando...');
 
     try {
-      // 1) Tomar el access_token del usuario logueado
-      const { data: { session} } = await supabase.auth.getSession();
+      const { data:{ session } } = await supabase.auth.getSession();
       const token = session?.access_token || '';
 
-      // 2) Enviar la venta a la API con Authorization: Bearer <token>
       const res = await fetch('/api/sales', {
         method: 'POST',
         headers: {
@@ -166,7 +160,7 @@ export default function POS() {
         body: JSON.stringify({
           items: cart.map(i => ({
             product_id: i.product_id,
-            quantity: i.quantity,   // si tu RPC espera "qty", cambia a: qty: i.quantity
+            quantity: i.quantity,
             unit_price: i.unit_price
           })),
           payment_method: payMethod
@@ -176,17 +170,13 @@ export default function POS() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error en venta');
 
-      // 3) Limpiar y refrescar
       setCart([]);
       setMsg(`Venta OK. ID: ${json.sale_id}`);
       await Promise.all([loadProducts(), loadToday()]);
       setActiveSection('');
       setSearch('');
 
-      // 4) Abrir recibo en nueva pestaña
-      if (json.sale_id) {
-        window.open(`/receipt/${json.sale_id}`, '_blank');
-      }
+      if (json.sale_id) window.open(`/receipt/${json.sale_id}`, '_blank');
     } catch (e) {
       setMsg(e.message);
     }
@@ -240,7 +230,8 @@ export default function POS() {
             <div style={{display:'flex',gap:8,alignItems:'center',margin:'8px 0 12px'}}>
               <button className="btn" onClick={()=>{ setActiveSection(''); setSearch(''); }}>← Secciones</button>
               <div style={{fontWeight:700}}>Sección: {activeSection}</div>
-              <input className="input" placeholder="Buscar..." value={search} onChange={e=>setSearch(e.target.value)} style={{maxWidth:280, marginLeft:'auto'}}/>
+              <input className="input" placeholder="Buscar..." value={search}
+                     onChange={e=>setSearch(e.target.value)} style={{maxWidth:280, marginLeft:'auto'}}/>
             </div>
             <div className="grid cols-4">
               {list.map(p=>{
@@ -251,7 +242,9 @@ export default function POS() {
                     <div style={{fontWeight:700}}>{p.name}</div>
                     <div className="badge">Stock: {Math.floor(p.stock)}</div>
                     <div style={{margin:'8px 0'}}>B/. {Number(p.price).toFixed(2)}</div>
-                    <button className="btn" disabled={disabled} onClick={()=>add(p)}>{disabled?'Sin stock':'Agregar'}</button>
+                    <button className="btn" disabled={disabled} onClick={()=>add(p)}>
+                      {disabled?'Sin stock':'Agregar'}
+                    </button>
                   </div>
                 );
               })}
