@@ -10,21 +10,24 @@ export async function POST(req) {
     const body = await req.json();
     const items = Array.isArray(body.items) ? body.items : [];
     const payment_method = body.payment_method || 'cash';
-    const shift_id = body.shift_id ?? null; // opcional
+    // shift_id es opcional – envíalo si ya manejas turnos:
+    const shift_id = body.shift_id ?? null;
 
     if (items.length === 0) {
       return NextResponse.json({ error: 'No items' }, { status: 400 });
     }
 
-    // Llamar RPC con la firma exacta que creamos: (p_items jsonb, p_method text, p_shift uuid)
     const supabase = getSupabaseAdmin();
+
+    // el RPC que creaste arriba
     const { data, error } = await supabase.rpc('create_sale', {
-      p_items: items,
+      p_items_jsonb: items,
       p_method: payment_method,
-      p_shift: shift_id
+      p_shift: shift_id,
     });
 
     if (error) {
+      console.error('create_sale error', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
