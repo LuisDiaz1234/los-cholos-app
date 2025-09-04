@@ -1,6 +1,4 @@
-// app/receipt/[id]/page.js
 'use client';
-
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 
@@ -13,37 +11,32 @@ export default function ReceiptPage({ params }) {
   useEffect(() => {
     async function load() {
       setLoading(true);
-      // 1) venta
+
       const { data: s } = await supabase
         .from('sales')
         .select('id, sale_date, total, payment_method')
         .eq('id', id)
         .maybeSingle();
 
-      // 2) items
       const { data: it } = await supabase
         .from('sale_items')
-        .select('product_id, product_name, qty, unit_price, subtotal')
+        .select('product_id, product_name, qty, unit_price, subtotal') // <--- usa qty
         .eq('sale_id', id)
         .order('product_name');
 
       setSale(s || null);
       setItems(it || []);
       setLoading(false);
-
-      // (opcional) auto imprimir al cargar
-      // setTimeout(()=>window.print(), 300);
     }
     load();
   }, [id]);
 
-  if (loading) return <div className="card">Cargando…</div>;
-  if (!sale) return <div className="card">No existe la venta.</div>;
+  if (loading) return <div className="card">Cargando...</div>;
+  if (!sale) return <div className="card">No se encontró la venta.</div>;
 
   return (
     <main className="receipt">
-      <h2>Los Cholos — Recibo</h2>
-      <div>ID: {sale.id}</div>
+      <h2>Recibo #{sale.id}</h2>
       <div>Fecha: {sale.sale_date}</div>
       <div>Método: {sale.payment_method}</div>
 
@@ -61,17 +54,9 @@ export default function ReceiptPage({ params }) {
             </tr>
           ))}
         </tbody>
-        <tfoot>
-          <tr>
-            <td colSpan={3} style={{ textAlign: 'right', fontWeight: 700 }}>TOTAL</td>
-            <td style={{ fontWeight: 700 }}>B/. {Number(sale.total).toFixed(2)}</td>
-          </tr>
-        </tfoot>
       </table>
 
-      <div style={{ marginTop: 16 }}>
-        <button className="btn" onClick={() => window.print()}>Imprimir</button>
-      </div>
+      <h3 style={{ textAlign: 'right' }}>Total: B/. {Number(sale.total).toFixed(2)}</h3>
     </main>
   );
 }
