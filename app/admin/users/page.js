@@ -1,16 +1,15 @@
 'use client';
 export const dynamic = 'force-dynamic';
-
 import { useEffect, useState } from 'react';
 import { useRequireRole } from '../../../lib/useRequireRole';
 import { supabase } from '../../../lib/supabaseClient';
 
 export default function AdminUsersPage() {
-  const role = useRequireRole('admin');
+  const ok = useRequireRole('admin');
   const [rows, setRows] = useState([]);
 
   useEffect(() => {
-    if (role !== 'ok') return;
+    if (ok !== 'ok') return;
     (async () => {
       const { data, error } = await supabase
         .from('profiles')
@@ -18,12 +17,12 @@ export default function AdminUsersPage() {
         .order('created_at', { ascending:false });
       setRows(error ? [] : (data || []));
     })();
-  }, [role]);
+  }, [ok]);
 
-  if (role !== 'ok') return null;
+  if (ok !== 'ok') return null;
 
   return (
-    <main className="card">
+    <div className="card">
       <h2>Usuarios</h2>
       <table className="table">
         <thead><tr><th>Email</th><th>Rol</th><th>UID</th><th>Creado</th></tr></thead>
@@ -36,9 +35,8 @@ export default function AdminUsersPage() {
               <td>{r.created_at?.slice(0,19).replace('T',' ')}</td>
             </tr>
           ))}
-          {rows.length===0 && <tr><td colSpan={4}>Sin usuarios.</td></tr>}
         </tbody>
       </table>
-    </main>
+    </div>
   );
 }
