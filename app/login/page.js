@@ -1,49 +1,49 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
-  const [pass, setPass] = useState('');
-  const [msg, setMsg] = useState('');
+  const [pass, setPass]   = useState('');
+  const [msg, setMsg]     = useState('');
+  const [busy, setBusy]   = useState(false);
 
-  const onSubmit = async (e) => {
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data:{ session } }) => {
+      if (session) router.replace('/');
+    });
+  }, [router]);
+
+  async function onSubmit(e) {
     e.preventDefault();
-    setMsg('Accediendo...');
-    const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
-    if (error) {
-      setMsg(error.message);
-      return;
-    }
-    setMsg('Ok, redirigiendo…');
+    setBusy(true);
+    setMsg('Accediendo…');
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email, password: pass
+    });
+    if (error) { setBusy(false); setMsg('Error: ' + error.message); return; }
+
+    const { data:{ session } } = await supabase.auth.getSession();
+    if (!session) { setBusy(false); setMsg('No se pudo crear sesión. Revisa email/clave.'); return; }
+
+    setMsg('OK. Redirigiendo…');
     router.replace('/');
-  };
+  }
 
   return (
     <div className="card auth-card">
       <h2>Acceder</h2>
       <form onSubmit={onSubmit} className="grid" style={{ gap: 10 }}>
-        <input
-          className="input"
-          type="email"
-          placeholder="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-        <input
-          className="input"
-          type="password"
-          placeholder="contraseña"
-          value={pass}
-          onChange={(e) => setPass(e.target.value)}
-          required
-        />
-        <button className="btn">Entrar</button>
+        <input className="input" type="email" placeholder="email"
+               value={email} onChange={e=>setEmail(e.target.value)} required />
+        <input className="input" type="password" placeholder="contraseña"
+               value={pass} onChange={e=>setPass(e.target.value)} required />
+        <button className="btn" disabled={busy}>Entrar</button>
       </form>
-      {msg && <div style={{ marginTop: 8 }}>{msg}</div>}
+      {msg && <div className="alert" style={{ marginTop: 8 }}>{msg}</div>}
     </div>
   );
 }
