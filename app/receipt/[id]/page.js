@@ -12,20 +12,22 @@ export default function ReceiptPage({ params }) {
     async function load() {
       setLoading(true);
 
-      const { data: s } = await supabase
+      const { data: s, error: e1 } = await supabase
         .from('sales')
         .select('id, sale_date, total, payment_method')
         .eq('id', id)
         .maybeSingle();
 
-      const { data: it } = await supabase
+      const { data: it, error: e2 } = await supabase
         .from('sale_items')
-        .select('product_id, product_name, qty, unit_price, subtotal') // <--- usa qty
+        .select('product_name, qty, unit_price, subtotal')
         .eq('sale_id', id)
         .order('product_name');
 
-      setSale(s || null);
-      setItems(it || []);
+      if (!e1 && !e2) {
+        setSale(s || null);
+        setItems(it || []);
+      }
       setLoading(false);
     }
     load();
