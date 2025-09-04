@@ -10,7 +10,7 @@ export async function POST(req) {
     const body = await req.json();
     const items = Array.isArray(body.items) ? body.items : [];
     const payment_method = body.payment_method || 'cash';
-    const shift_id = body.shift_id ?? null; // opcional
+    const shift_id = body.shift_id ?? null;
 
     if (items.length === 0) {
       return NextResponse.json({ error: 'No items' }, { status: 400 });
@@ -18,13 +18,12 @@ export async function POST(req) {
 
     const supabase = getSupabaseAdmin();
 
-    // Ajusta los nombres de parámetros al de tu función SQL
-    // Si tu función es create_sale(p_items jsonb, p_method text, p_shift uuid)
+    // Ajusta al contrato de tu función SQL `create_sale`
     const { data, error } = await supabase.rpc('create_sale', {
-      p_items: items.map(i => ({
+      p_items_jsonb: items.map(i => ({
         product_id: i.product_id,
-        qty: i.quantity,          // ojo: tu SQL usa qty
-        unit_price: i.unit_price
+        qty: i.quantity,         // <-- tu RPC espera "qty"
+        unit_price: i.unit_price // opcional si tu RPC lo usa
       })),
       p_method: payment_method,
       p_shift: shift_id
@@ -32,14 +31,8 @@ export async function POST(req) {
 
     if (error) throw error;
 
-    // Asegúrate de que tu función retorne el id de la venta:
-    // RETURN v_sale_id;  -- uuid
-    const sale_id = data?.sale_id || data || null;
-    if (!sale_id) {
-      return NextResponse.json({ error: 'No sale_id returned' }, { status: 500 });
-    }
-
-    return NextResponse.json({ ok: true, sale_id }, { status: 200 });
+    // Asegúrate de devolver el id para abrir el recibo
+    return NextResponse.json({ ok: true, sale_id: data?.sale_id ?? data?.id ?? null });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
