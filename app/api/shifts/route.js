@@ -1,4 +1,4 @@
-import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getSupabaseAdmin } from '../../../lib/supabaseAdmin';
 export const runtime = 'nodejs'; export const dynamic = 'force-dynamic';
 
 async function getUid(req, admin){
