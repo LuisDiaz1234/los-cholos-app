@@ -1,19 +1,18 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { useRequireAuth } from '@/lib/useRequireAuth';
 
+// ====== Config ======
 const PAYMENT_OPTIONS = [
   { value: 'cash', label: 'Efectivo' },
   { value: 'yappy', label: 'Yappy' }
 ];
-
 const DAILY_GOAL = Number(process.env.NEXT_PUBLIC_DAILY_GOAL || 220);
-
-// Secciones principales (orden fijo)
 const BIG_SECTIONS = ['Comida', 'Bebidas', 'Panadería'];
 const sectionIcons = { Comida: '🍽️', Bebidas: '🥤', Panadería: '🥟' };
 
-// Palabras clave para inferir sección por NOMBRE
+// Palabras clave para inferir sección por nombre (fallback cuando category viene 'General')
 const K = {
   bebidas: [
     'batido','refresco','soda','coca','coca cola','cola','agua','jugo','malta','té',' te ','café',' cafe ',
@@ -23,29 +22,39 @@ const K = {
   comida: ['salchi','hot dog','hotdog','perro','promocion','promoción','orden','media orden']
 };
 
+// ====== Helpers ======
+function localDateYYYYMMDD(d=new Date()){
+  // fecha local (NO UTC)
+  const off = d.getTimezoneOffset()*60000;
+  return new Date(d - off).toISOString().slice(0,10);
+}
+const todayStr = () => localDateYYYYMMDD();
+
 function sectionOf(p) {
   const cat = (p.category || '').trim().toLowerCase();
   const name = (p.name || '').trim().toLowerCase();
 
-  if (cat === 'comida' || cat === 'bebidas' || cat === 'panadería' || cat === 'panaderia') {
-    if (cat === 'panaderia') return 'Panadería';
-    return cat[0].toUpperCase() + cat.slice(1);
+  if (['comida','bebidas','panadería','panaderia'].includes(cat)) {
+    return cat==='panaderia' ? 'Panadería' : (cat[0].toUpperCase()+cat.slice(1));
   }
   const has = (arr) => arr.some(w => name.includes(w));
   if (has(K.bebidas)) return 'Bebidas';
   if (has(K.panaderia)) return 'Panadería';
   if (has(K.comida)) return 'Comida';
 
-  if (/bebida|batido|refresco|soda|café|cafe|té|jugo|malta/i.test(p.category || '')) return 'Bebidas';
-  if (/empanada|panader/i.test(p.category || '')) return 'Panadería';
-  if (/salchi|hot ?dog|perro|comida|platos|especial|orden/i.test(p.category || '')) return 'Comida';
+  if (/bebida|batido|refresco|soda|café|cafe|té|jugo|malta/i.test(p.category||'')) return 'Bebidas';
+  if (/empanada|panader/i.test(p.category||'')) return 'Panadería';
+  if (/salchi|hot ?dog|perro|comida|platos|especial|orden/i.test(p.category||'')) return 'Comida';
 
   return 'Comida';
 }
 
-const isoToday = () => new Date().toISOString().slice(0,10);
-
+// ====== Página POS ======
 export default function POS() {
+  // Requiere sesión (si no hay, redirige a /login)
+  const auth = useRequireAuth();
+  if (auth !== 'ok') return null;
+
   const [products, setProducts] = useState([]);
   const [activeSection, setActiveSection] = useState('');
   const [cart, setCart] = useState([]);
@@ -55,15 +64,15 @@ export default function POS() {
   const [search, setSearch] = useState('');
   const [todaySales, setTodaySales] = useState(0);
 
-  const load = async () => {
+  // ====== Carga de datos ======
+  const loadProducts = async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from('products')
       .select('id, name, price, stock, category, is_active')
       .eq('is_active', true)
       .order('name', { ascending: true });
-    if (error) console.error(error);
-    setProducts(data || []);
+    if (!error) setProducts(data || []);
     setLoading(false);
   };
 
@@ -71,18 +80,33 @@ export default function POS() {
     const { data, error } = await supabase
       .from('sales')
       .select('total')
-      .eq('sale_date', isoToday());
-    if (error) { console.error(error); return; }
-    setTodaySales((data||[]).reduce((s,r)=>s+Number(r.total||0),0));
+      .eq('sale_date', todayStr());
+    if (!error) setTodaySales((data || []).reduce((s, r) => s + Number(r.total || 0), 0));
   };
 
-  useEffect(()=>{ load(); loadToday(); },[]);
+  useEffect(() => { loadProducts(); loadToday(); }, []);
 
+  // ====== Atajos de teclado ======
+  useEffect(()=>{
+    const onKey = (e)=>{
+      if (e.key === 'Enter') { e.preventDefault(); checkout(); }
+      if (e.key === '+' || e.key === '=') {
+        if (cart.length>0) changeQty(cart[cart.length-1].product_id, +1);
+      }
+      if (e.key === '-' || e.key === '_') {
+        if (cart.length>0) changeQty(cart[cart.length-1].product_id, -1);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return ()=>window.removeEventListener('keydown', onKey);
+  }, [cart]);
+
+  // ====== Secciones y listado ======
   const sectionStats = useMemo(()=>{
     const counts = { Comida:0, Bebidas:0, Panadería:0 };
-    (products || []).forEach(p => { const s = sectionOf(p); counts[s] = (counts[s]||0)+1; });
-    return BIG_SECTIONS.map(name => ({ name, count: counts[name]||0 })).filter(s => s.count>0);
-  }, [products]);
+    (products||[]).forEach(p=>{ counts[sectionOf(p)]++; });
+    return BIG_SECTIONS.map(n=>({name:n,count:counts[n]||0})).filter(s=>s.count>0);
+  },[products]);
 
   const list = useMemo(()=>{
     let l = products.filter(p => sectionOf(p) === (activeSection || 'Comida'));
@@ -90,6 +114,7 @@ export default function POS() {
     return l;
   },[products, activeSection, search]);
 
+  // ====== Carrito ======
   const qtyInCart = pid => cart.find(i=>i.product_id===pid)?.quantity || 0;
 
   const add = (p) => {
@@ -109,8 +134,7 @@ export default function POS() {
         if (r.product_id!==pid) return r;
         const want = r.quantity + d;
         const max = p ? Math.max(0, Math.floor(p.stock)) : 999;
-        const q = Math.max(0, Math.min(want, max));
-        return { ...r, quantity:q };
+        return { ...r, quantity: Math.max(0, Math.min(want, max)) };
       }).filter(r=>r.quantity>0);
       return n;
     });
@@ -118,32 +142,62 @@ export default function POS() {
 
   const total = cart.reduce((s,r)=>s+r.quantity*r.unit_price,0);
 
+  // ====== Checkout (ENVÍA TOKEN) ======
   const checkout = async () => {
-    if (cart.length===0) return setMsg('Agrega productos antes de cobrar.');
+    if (cart.length === 0) {
+      setMsg('Agrega productos antes de cobrar.');
+      return;
+    }
     setMsg('Procesando...');
-    try{
+
+    try {
+      // 1) Tomar el access_token del usuario logueado
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token || '';
+
+      // 2) Enviar venta a la API con Authorization: Bearer <token>
       const res = await fetch('/api/sales', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({
-          items: cart.map(i=>({product_id:i.product_id,quantity:i.quantity,unit_price:i.unit_price})),
+          items: cart.map(i => ({
+            product_id: i.product_id,
+            quantity: i.quantity,      // Si tu RPC espera "qty", cambia a: qty: i.quantity
+            unit_price: i.unit_price
+          })),
           payment_method: payMethod
         })
       });
+
       const json = await res.json();
-      if(!res.ok) throw new Error(json.error||'Error en venta');
-      setCart([]); setMsg(`Venta OK. ID: ${json.sale_id}`);
-      await load();
-      await loadToday();
-      setActiveSection(''); setSearch('');
-    }catch(e){ setMsg(e.message); }
+      if (!res.ok) throw new Error(json.error || 'Error en venta');
+
+      // 3) Limpiar carrito, refrescar stock y meta del día
+      setCart([]);
+      setMsg(`Venta OK. ID: ${json.sale_id}`);
+      await Promise.all([loadProducts(), loadToday()]);
+      setActiveSection('');
+      setSearch('');
+
+      // 4) Abrir recibo en nueva pestaña (si ya implementaste /receipt/[id])
+      if (json.sale_id) {
+        window.open(`/receipt/${json.sale_id}`, '_blank');
+      }
+    } catch (e) {
+      setMsg(e.message);
+    }
   };
 
+  // ====== Meta diaria ======
   const goalPct = Math.min(100, Math.round((todaySales / DAILY_GOAL) * 100));
   const remaining = Math.max(0, DAILY_GOAL - todaySales);
 
   if (loading) return <div className="card">Cargando…</div>;
 
+  // ====== UI ======
   return (
     <main className="grid" style={{gap:16}}>
       <div className="card">
@@ -151,13 +205,11 @@ export default function POS() {
 
         {/* META DIARIA */}
         <div className="goal">
-          <div className="goal-row">
-            <div>Meta diaria: <strong>B/. {DAILY_GOAL.toFixed(2)}</strong></div>
-            <div>Hoy: <strong>B/. {todaySales.toFixed(2)}</strong></div>
-            <div>Faltan: <strong>B/. {remaining.toFixed(2)}</strong></div>
-          </div>
+          <div>Meta diaria: <strong>B/. {DAILY_GOAL.toFixed(2)}</strong></div>
+          <div>Hoy: <strong>B/. {todaySales.toFixed(2)}</strong></div>
+          <div>Faltan: <strong>B/. {remaining.toFixed(2)}</strong></div>
+          <div>{goalPct}% de la meta</div>
           <div className="progress"><span style={{width:`${goalPct}%`}}/></div>
-          <div className="goal-hint">{goalPct}% de la meta</div>
         </div>
 
         {/* SECCIONES */}
