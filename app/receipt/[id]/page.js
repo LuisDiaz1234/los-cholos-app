@@ -1,54 +1,77 @@
+// app/receipt/[id]/page.js
 'use client';
-import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
-import { supabase } from '../../../lib/supabaseClient';
 
-export default function ReceiptPage() {
-  const { id } = useParams();
+import { useEffect, useState } from 'react';
+import { supabase } from '../../lib/supabaseClient';
+
+export default function ReceiptPage({ params }) {
+  const { id } = params;
   const [sale, setSale] = useState(null);
   const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    (async () => {
-      const { data: s } = await supabase.from('sales').select('*').eq('id', id).maybeSingle();
-      setSale(s || null);
-      const { data: it } = await supabase.from('sale_items')
-        .select('product_name, price, qty, subtotal')
+    async function load() {
+      setLoading(true);
+      // 1) venta
+      const { data: s } = await supabase
+        .from('sales')
+        .select('id, sale_date, total, payment_method')
+        .eq('id', id)
+        .maybeSingle();
+
+      // 2) items
+      const { data: it } = await supabase
+        .from('sale_items')
+        .select('product_id, product_name, qty, unit_price, subtotal')
         .eq('sale_id', id)
-        .order('id', { ascending: true });
+        .order('product_name');
+
+      setSale(s || null);
       setItems(it || []);
-      document.body.classList.add('ticket');
-      return () => document.body.classList.remove('ticket');
-    })();
+      setLoading(false);
+
+      // (opcional) auto imprimir al cargar
+      // setTimeout(()=>window.print(), 300);
+    }
+    load();
   }, [id]);
 
-  if (!sale) return <div className="card">Cargando…</div>;
+  if (loading) return <div className="card">Cargando…</div>;
+  if (!sale) return <div className="card">No existe la venta.</div>;
 
   return (
-    <div className="card">
-      <h3 style={{textAlign:'center', margin:'4px 0'}}>Los Cholos</h3>
-      <div className="text-muted" style={{textAlign:'center'}}>RUC / Tel: —</div>
-      <hr/>
-      <div>Recibo: <b>{sale.id}</b></div>
-      <div>Fecha: {new Date(sale.created_at).toLocaleString()}</div>
-      <hr/>
-      <table className="table">
-        <thead><tr><th>Prod</th><th>Cant</th><th className="align-right">Sub</th></tr></thead>
+    <main className="receipt">
+      <h2>Los Cholos — Recibo</h2>
+      <div>ID: {sale.id}</div>
+      <div>Fecha: {sale.sale_date}</div>
+      <div>Método: {sale.payment_method}</div>
+
+      <table className="table" style={{ marginTop: 12 }}>
+        <thead>
+          <tr><th>Producto</th><th>Cant</th><th>PU</th><th>Subtot</th></tr>
+        </thead>
         <tbody>
-          {items.map((it,i)=>(
+          {items.map((r, i) => (
             <tr key={i}>
-              <td>{it.product_name}</td>
-              <td>{it.qty}</td>
-              <td className="align-right">B/. {Number(it.subtotal).toFixed(2)}</td>
+              <td>{r.product_name}</td>
+              <td>{r.qty}</td>
+              <td>B/. {Number(r.unit_price).toFixed(2)}</td>
+              <td>B/. {Number(r.subtotal).toFixed(2)}</td>
             </tr>
           ))}
         </tbody>
+        <tfoot>
+          <tr>
+            <td colSpan={3} style={{ textAlign: 'right', fontWeight: 700 }}>TOTAL</td>
+            <td style={{ fontWeight: 700 }}>B/. {Number(sale.total).toFixed(2)}</td>
+          </tr>
+        </tfoot>
       </table>
-      <hr/>
-      <div className="align-right"><b>Total: B/. {Number(sale.total).toFixed(2)}</b></div>
-      <div className="text-muted">Pago: {sale.payment_method}</div>
-      <hr/>
-      <div style={{textAlign:'center'}}>¡Gracias por su compra!</div>
-    </div>
+
+      <div style={{ marginTop: 16 }}>
+        <button className="btn" onClick={() => window.print()}>Imprimir</button>
+      </div>
+    </main>
   );
 }
