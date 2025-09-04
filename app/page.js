@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { supabase } from '@/lib/supabaseClient';
-import { useRequireAuth } from '@/lib/useRequireAuth';
+import { supabase } from '../lib/supabaseClient';
+import { useRequireAuth } from '../lib/useRequireAuth';
+
 
 // ====== Config ======
 const PAYMENT_OPTIONS = [
