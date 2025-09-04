@@ -12,7 +12,7 @@ const DAILY_GOAL = Number(process.env.NEXT_PUBLIC_DAILY_GOAL || 220);
 const BIG_SECTIONS = ['Comida', 'Bebidas', 'Panadería'];
 const sectionIcons = { Comida: '🍽️', Bebidas: '🥤', Panadería: '🥟' };
 
-// Palabras clave para inferir sección por nombre (fallback cuando category viene 'General')
+// Palabras clave para inferir sección por nombre (fallback)
 const K = {
   bebidas: [
     'batido','refresco','soda','coca','coca cola','cola','agua','jugo','malta','té',' te ','café',' cafe ',
@@ -24,7 +24,6 @@ const K = {
 
 // ====== Helpers ======
 function localDateYYYYMMDD(d=new Date()){
-  // fecha local (NO UTC)
   const off = d.getTimezoneOffset()*60000;
   return new Date(d - off).toISOString().slice(0,10);
 }
@@ -142,7 +141,7 @@ export default function POS() {
 
   const total = cart.reduce((s,r)=>s+r.quantity*r.unit_price,0);
 
-  // ====== Checkout (ENVÍA TOKEN) ======
+  // ====== Checkout (envía token y abre recibo) ======
   const checkout = async () => {
     if (cart.length === 0) {
       setMsg('Agrega productos antes de cobrar.');
@@ -155,7 +154,7 @@ export default function POS() {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token || '';
 
-      // 2) Enviar venta a la API con Authorization: Bearer <token>
+      // 2) Enviar la venta a la API con Authorization: Bearer <token>
       const res = await fetch('/api/sales', {
         method: 'POST',
         headers: {
@@ -165,7 +164,7 @@ export default function POS() {
         body: JSON.stringify({
           items: cart.map(i => ({
             product_id: i.product_id,
-            quantity: i.quantity,      // Si tu RPC espera "qty", cambia a: qty: i.quantity
+            quantity: i.quantity,   // si tu RPC espera "qty", cambia a: qty: i.quantity
             unit_price: i.unit_price
           })),
           payment_method: payMethod
@@ -175,14 +174,14 @@ export default function POS() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error en venta');
 
-      // 3) Limpiar carrito, refrescar stock y meta del día
+      // 3) Limpiar y refrescar
       setCart([]);
       setMsg(`Venta OK. ID: ${json.sale_id}`);
       await Promise.all([loadProducts(), loadToday()]);
       setActiveSection('');
       setSearch('');
 
-      // 4) Abrir recibo en nueva pestaña (si ya implementaste /receipt/[id])
+      // 4) Abrir recibo en nueva pestaña
       if (json.sale_id) {
         window.open(`/receipt/${json.sale_id}`, '_blank');
       }
