@@ -1,69 +1,54 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
 import { supabase } from '../../../lib/supabaseClient';
 
+export default function ReceiptPage() {
+  const { id } = useParams();
+  const [sale, setSale] = useState(null);
+  const [items, setItems] = useState([]);
 
-const fmt = n => `B/. ${Number(n||0).toFixed(2)}`;
-
-export default function ReceiptPage({ params }){
-  const saleId = params.id;
-  const [sale,setSale]=useState(null);
-  const [items,setItems]=useState([]);
-
-  useEffect(()=>{
-    (async ()=>{
-      const { data: s } = await supabase.from('sales').select('*').eq('id', saleId).maybeSingle();
-      setSale(s||null);
-      const { data: it } = await supabase
-        .from('sale_items')
-        .select('product_id, qty, unit_price, products(name)')
-        .eq('sale_id', saleId);
-      setItems(it||[]);
+  useEffect(() => {
+    (async () => {
+      const { data: s } = await supabase.from('sales').select('*').eq('id', id).maybeSingle();
+      setSale(s || null);
+      const { data: it } = await supabase.from('sale_items')
+        .select('product_name, price, qty, subtotal')
+        .eq('sale_id', id)
+        .order('id', { ascending: true });
+      setItems(it || []);
+      document.body.classList.add('ticket');
+      return () => document.body.classList.remove('ticket');
     })();
-  }, [saleId]);
+  }, [id]);
 
-  const url = typeof window!=='undefined' ? window.location.href : '';
-  const qr = `https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(url)}`;
-
-  const print58 = ()=>{ document.body.classList.add('ticket'); window.print(); document.body.classList.remove('ticket'); };
-  const printA4 = ()=>{ window.print(); };
+  if (!sale) return <div className="card">Cargando…</div>;
 
   return (
-    <main className="card" style={{maxWidth:820}}>
-      <h2>Recibo</h2>
-      {!sale ? 'Cargando…' : (
-        <>
-          <div className="grid cols-2" style={{gap:8}}>
-            <div>
-              <div><strong>Los Cholos — Salchipapería</strong></div>
-              <div>Fecha: {sale.sale_date}</div>
-              <div>Método: {sale.payment_method}</div>
-              <div>ID: {sale.id}</div>
-            </div>
-            <div style={{textAlign:'right'}}><img alt="QR" src={qr} /></div>
-          </div>
-
-          <table className="table" style={{marginTop:12}}>
-            <thead><tr><th>Producto</th><th>Cant</th><th>PU</th><th>Subtot</th></tr></thead>
-            <tbody>
-              {items.map((r,i)=>(
-                <tr key={i}>
-                  <td>{r.products?.name || r.product_id}</td>
-                  <td>{r.qty}</td>
-                  <td>{fmt(r.unit_price)}</td>
-                  <td>{fmt(Number(r.qty)*Number(r.unit_price))}</td>
-                </tr>
-              ))}
-              <tr><td colSpan={3} style={{textAlign:'right'}}><strong>Total</strong></td><td><strong>{fmt(sale.total)}</strong></td></tr>
-            </tbody>
-          </table>
-
-          <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
-            <button className="btn" onClick={print58}>Imprimir 58mm</button>
-            <button className="btn" onClick={printA4}>Imprimir A4</button>
-          </div>
-        </>
-      )}
-    </main>
+    <div className="card">
+      <h3 style={{textAlign:'center', margin:'4px 0'}}>Los Cholos</h3>
+      <div className="text-muted" style={{textAlign:'center'}}>RUC / Tel: —</div>
+      <hr/>
+      <div>Recibo: <b>{sale.id}</b></div>
+      <div>Fecha: {new Date(sale.created_at).toLocaleString()}</div>
+      <hr/>
+      <table className="table">
+        <thead><tr><th>Prod</th><th>Cant</th><th className="align-right">Sub</th></tr></thead>
+        <tbody>
+          {items.map((it,i)=>(
+            <tr key={i}>
+              <td>{it.product_name}</td>
+              <td>{it.qty}</td>
+              <td className="align-right">B/. {Number(it.subtotal).toFixed(2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <hr/>
+      <div className="align-right"><b>Total: B/. {Number(sale.total).toFixed(2)}</b></div>
+      <div className="text-muted">Pago: {sale.payment_method}</div>
+      <hr/>
+      <div style={{textAlign:'center'}}>¡Gracias por su compra!</div>
+    </div>
   );
 }
