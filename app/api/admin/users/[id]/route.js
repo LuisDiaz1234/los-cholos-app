@@ -1,39 +1,25 @@
+// PATCH: cambiar rol del usuario
 import { NextResponse } from 'next/server';
-import { getSupabaseAdmin } from '../../../../../lib/supabaseAdmin';
+import getSupabaseAdmin from '../../../../../lib/supabaseAdmin';
 
-
-async function assertAdmin(req, supabaseAdmin) {
-  const auth = req.headers.get('authorization') || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
-  if (!token) return null;
-  const { data: userData } = await supabaseAdmin.auth.getUser(token);
-  const uid = userData?.user?.id;
-  if (!uid) return null;
-  const { data: prof } = await supabaseAdmin.from('profiles').select('role').eq('id', uid).maybeSingle();
-  if (!prof || prof.role !== 'admin') return null;
-  return uid;
-}
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function PATCH(req, { params }) {
-  const supabaseAdmin = getSupabaseAdmin();
-  const uid = await assertAdmin(req, supabaseAdmin);
-  if (!uid) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-
-  const { role } = await req.json();
-  const id = params.id;
-  if (!role || !['admin','cashier'].includes(role)) return NextResponse.json({ error:'rol inválido' }, { status:400 });
-
-  await supabaseAdmin.from('profiles').update({ role }).eq('id', id);
-  return NextResponse.json({ ok: true });
-}
-
-export async function DELETE(req, { params }) {
-  const supabaseAdmin = getSupabaseAdmin();
-  const uid = await assertAdmin(req, supabaseAdmin);
-  if (!uid) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-
-  const id = params.id;
-  // desactivar usuario (elimínalo si prefieres)
-  await supabaseAdmin.auth.admin.deleteUser(id);
-  return NextResponse.json({ ok: true });
+  try {
+    const { id } = params;
+    const { role } = await req.json();
+    if (!['admin','staff'].includes(role)) {
+      return NextResponse.json({ error:'Rol inválido' }, { status:400 });
+    }
+    const supabase = getSupabaseAdmin();
+    const { error } = await supabase
+      .from('profiles')
+      .update({ role })
+      .eq('uid', id);
+    if (error) throw error;
+    return NextResponse.json({ ok:true }, { status:200 });
+  } catch (e) {
+    return NextResponse.json({ error: e.message }, { status:500 });
+  }
 }
