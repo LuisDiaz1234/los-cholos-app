@@ -2,50 +2,44 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 
-function ymd(d = new Date()) {
+const toYmd = (d = new Date()) => {
   const off = d.getTimezoneOffset() * 60000;
   return new Date(d - off).toISOString().slice(0, 10);
-}
+};
 
 export default function ShoppingListPage() {
-  const [date, setDate] = useState(ymd());
-  const [ing, setIng] = useState([]);
-  const [prods, setProds] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [date, setDate] = useState(toYmd());
+  const [ingredients, setIngredients] = useState([]);
+  const [products, setProducts] = useState([]);
   const [msg, setMsg] = useState('');
+  const [loading, setLoading] = useState(false);
 
   async function load() {
     setLoading(true);
     setMsg('');
-
-    // Ingredientes sugeridos
-    const { data: a, error: e1 } = await supabase
+    const { data: ingData, error: errIng } = await supabase
       .from('shopping_list_ingredients')
-      .select('ingredient_id, ingredient_name, suggested_qty, unit, reason, target_date')
+      .select('ingredient_name, suggested_qty, unit, reason, target_date')
       .eq('target_date', date)
-      .order('ingredient_name', { ascending: true });
-
-    // Productos sugeridos (si usas otra tabla cámbiala aquí)
-    const { data: b, error: e2 } = await supabase
+      .order('ingredient_name');
+    const { data: prodData, error: errProd } = await supabase
       .from('shopping_list')
-      .select('product_id, product_name, suggested_qty, unit, reason, target_date')
+      .select('product_name, suggested_qty, unit, reason, target_date')
       .eq('target_date', date)
-      .order('product_name', { ascending: true });
-
-    if (e1) setMsg(e1.message);
-    if (e2) setMsg((m) => (m ? m + ' | ' + e2.message : e2.message));
-
-    setIng(a || []);
-    setProds(b || []);
+      .order('product_name');
+    if (errIng) setMsg(errIng.message);
+    if (errProd) setMsg(prev => prev ? prev + ' | ' + errProd.message : errProd.message);
+    setIngredients(ingData || []);
+    setProducts(prodData || []);
     setLoading(false);
   }
 
   useEffect(() => { load(); }, [date]);
 
-  async function generateNow() {
+  async function generate() {
     try {
       setLoading(true);
-      setMsg('Generando...');
+      setMsg('Generando…');
       const res = await fetch('/api/generate-shopping-list', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -54,7 +48,7 @@ export default function ShoppingListPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error al generar');
       await load();
-      setMsg('Lista actualizada.');
+      setMsg('Lista generada.');
     } catch (e) {
       setMsg(e.message);
     } finally {
@@ -66,8 +60,7 @@ export default function ShoppingListPage() {
     <main className="grid" style={{ gap: 16 }}>
       <div className="card">
         <h2>Lista de compras</h2>
-
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems:'center', marginTop: 8 }}>
           <input
             type="date"
             className="input"
@@ -75,11 +68,10 @@ export default function ShoppingListPage() {
             onChange={(e) => setDate(e.target.value)}
             style={{ width: 180 }}
           />
-          <button className="btn" onClick={generateNow} disabled={loading}>
+          <button className="btn" onClick={generate} disabled={loading}>
             Generar ahora
           </button>
         </div>
-
         {msg && <div style={{ marginTop: 8 }}>{msg}</div>}
 
         <h3 style={{ marginTop: 16 }}>Ingredientes</h3>
@@ -88,7 +80,7 @@ export default function ShoppingListPage() {
             <tr><th>Ingrediente</th><th>Sugerido</th><th>Unidad</th><th>Motivo</th></tr>
           </thead>
           <tbody>
-            {ing.map((r, i) => (
+            {ingredients.map((r, i) => (
               <tr key={i}>
                 <td>{r.ingredient_name}</td>
                 <td>{Number(r.suggested_qty).toLocaleString()}</td>
@@ -96,7 +88,7 @@ export default function ShoppingListPage() {
                 <td>{r.reason || ''}</td>
               </tr>
             ))}
-            {ing.length === 0 && (
+            {ingredients.length === 0 && (
               <tr><td colSpan={4}>Sin sugerencias para {date}</td></tr>
             )}
           </tbody>
@@ -108,7 +100,7 @@ export default function ShoppingListPage() {
             <tr><th>Producto</th><th>Sugerido</th><th>Unidad</th><th>Motivo</th></tr>
           </thead>
           <tbody>
-            {prods.map((r, i) => (
+            {products.map((r, i) => (
               <tr key={i}>
                 <td>{r.product_name}</td>
                 <td>{Number(r.suggested_qty).toLocaleString()}</td>
@@ -116,7 +108,7 @@ export default function ShoppingListPage() {
                 <td>{r.reason || ''}</td>
               </tr>
             ))}
-            {prods.length === 0 && (
+            {products.length === 0 && (
               <tr><td colSpan={4}>Sin sugerencias para {date}</td></tr>
             )}
           </tbody>
