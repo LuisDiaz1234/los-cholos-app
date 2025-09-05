@@ -1,197 +1,140 @@
 'use client';
+
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 
-const iso = d => new Date(d).toISOString().slice(0,10);
-const today = () => iso(new Date());
-const daysAgo = n => iso(new Date(Date.now() - n*86400000));
-const fmt = n => `B/. ${Number(n||0).toFixed(2)}`;
 const DAILY_GOAL = Number(process.env.NEXT_PUBLIC_DAILY_GOAL || 220);
 
-export default function Dashboard(){
-  const [from, setFrom] = useState(daysAgo(29));
-  const [to, setTo] = useState(today());
-  const [sales, setSales] = useState([]); // {id, sale_date, total, payment_method}
-  const [items, setItems] = useState([]); // sale_items joined later
-  const [loading, setLoading] = useState(false);
+// util fecha local YYYY-MM-DD
+function dstr(d=new Date()) {
+  const off = d.getTimezoneOffset()*60000;
+  return new Date(d - off).toISOString().slice(0,10);
+}
+function addDays(base, n) {
+  const d = new Date(base); d.setDate(d.getDate()+n); return d;
+}
+
+export default function Dashboard() {
+  const [from, setFrom] = useState(dstr(addDays(new Date(), -30)));
+  const [to, setTo] = useState(dstr(new Date()));
+  const [rows, setRows] = useState([]);
+  const [today, setToday] = useState(0);
+  const [loading, setLoading] = useState(true);
 
   const load = async () => {
     setLoading(true);
-    // 1) Ventas del rango
-    const { data: s } = await supabase
-      .from('sales')
-      .select('id,sale_date,total,payment_method')
-      .gte('sale_date', from)
-      .lte('sale_date', to)
-      .order('sale_date', { ascending: true });
+    // ventas del rango
+    const { data: daily } = await supabase.rpc('sales_by_day', { p_from: from, p_to: to }); 
+    // si no tienes sales_by_day, puedes usar:
+    // const { data: daily } = await supabase.from('sales')
+    //   .select('sale_date, total').gte('sale_date', from).lte('sale_date', to);
 
-    const ids = (s||[]).map(r=>r.id);
-    let it = [];
-    if (ids.length > 0) {
-      // 2) Items de esas ventas
-      const { data: si } = await supabase
-        .from('sale_items')
-        .select('sale_id, product_id, qty, unit_price')
-        .in('sale_id', ids);
-      it = si || [];
-    }
-    setSales(s||[]);
-    setItems(it);
+    setRows(daily || []);
+    // hoy
+    const { data: t } = await supabase.from('sales').select('total').eq('sale_date', dstr()).returns();
+    const todaySum = (t||[]).reduce((s,r)=>s+Number(r.total||0),0);
+    setToday(todaySum);
     setLoading(false);
   };
+
   useEffect(()=>{ load(); }, [from, to]);
 
-  // ======= KPIs =======
-  const kpis = useMemo(()=>{
-    const total = (sales||[]).reduce((a,b)=>a+Number(b.total||0),0);
-    const orders = (sales||[]).length;
-    const avg = orders ? total/orders : 0;
-
-    const todayTotal = (sales||[]).filter(r=>r.sale_date===today()).reduce((a,b)=>a+Number(b.total||0),0);
-    const goalPct = Math.min(100, Math.round((todayTotal/DAILY_GOAL)*100));
-    const remaining = Math.max(0, DAILY_GOAL - todayTotal);
-
-    return { total, orders, avg, todayTotal, goalPct, remaining };
-  }, [sales]);
-
-  // ======= Serie diaria =======
-  const daily = useMemo(()=>{
-    const m = new Map();
-    (sales||[]).forEach(r => m.set(r.sale_date, (m.get(r.sale_date)||0) + Number(r.total||0)));
-    // completar días vacíos
-    const out = [];
+  // normaliza datos por fecha
+  const points = useMemo(()=>{
+    // construir mapa del rango con 0
+    const map = new Map();
     let d = new Date(from);
     const end = new Date(to);
     while (d <= end) {
-      const key = d.toISOString().slice(0,10);
-      out.push({ date: key, total: m.get(key)||0 });
-      d.setDate(d.getDate()+1);
+      map.set(dstr(d), 0);
+      d = addDays(d, 1);
     }
-    return out;
-  }, [sales, from, to]);
+    for (const r of rows) {
+      const key = r.sale_date || r.date || r.day;
+      const val = Number(r.total || r.sum || r.amount || 0);
+      if (map.has(key)) map.set(key, (map.get(key)||0) + val);
+    }
+    return Array.from(map.entries()).map(([date, total])=>({ date, total }));
+  }, [rows, from, to]);
 
-  // ======= Métodos de pago =======
-  const byMethod = useMemo(()=>{
-    const map = {};
-    (sales||[]).forEach(r=>{
-      const k = r.payment_method || 'otros';
-      map[k] = (map[k]||0) + Number(r.total||0);
-    });
-    return Object.entries(map).map(([method, total])=>({ method, total })).sort((a,b)=>b.total-a.total);
-  }, [sales]);
+  const totalRange = points.reduce((s,p)=>s+p.total,0);
+  const orders = rows.length;
+  const avgTicket = orders ? (totalRange / orders) : 0;
+  const goalPct = Math.min(100, Math.round((today / DAILY_GOAL) * 100));
+  const remaining = Math.max(0, DAILY_GOAL - today);
 
-  // ======= Top productos (por revenue) =======
-  const topProducts = useMemo(()=>{
-    const map = new Map(); // product_id -> {qty, revenue}
-    (items||[]).forEach(r=>{
-      const rev = Number(r.qty||0)*Number(r.unit_price||0);
-      const prev = map.get(r.product_id) || { qty:0, revenue:0 };
-      map.set(r.product_id, { qty: prev.qty + Number(r.qty||0), revenue: prev.revenue + rev });
-    });
-    const arr = Array.from(map.entries()).map(([pid, v])=>({ product_id: pid, ...v }));
-    return arr.sort((a,b)=>b.revenue-a.revenue).slice(0,10);
-  }, [items]);
+  // simple bar chart SVG
+  const Chart = () => {
+    const width = Math.max(600, points.length * 18);
+    const height = 220;
+    const max = Math.max(10, ...points.map(p=>p.total));
+    const barW = 12;
+    const gap = 6;
+    const pad = 24;
 
-  const [prodNames, setProdNames] = useState({});
-  useEffect(()=>{
-    (async ()=>{
-      const ids = topProducts.map(p=>p.product_id);
-      if (ids.length===0) return setProdNames({});
-      const { data } = await supabase.from('products').select('id,name').in('id', ids);
-      const by = Object.fromEntries((data||[]).map(x=>[x.id, x.name]));
-      setProdNames(by);
-    })();
-  }, [topProducts]);
+    return (
+      <div style={{overflowX:'auto'}}>
+        <svg width={width+pad*2} height={height+pad*2}>
+          <g transform={`translate(${pad},${pad})`}>
+            {/* eje y */}
+            <line x1="0" y1="0" x2="0" y2={height} stroke="#ddd" />
+            {/* barras */}
+            {points.map((p, i) => {
+              const h = Math.round((p.total / max) * (height-10));
+              const x = i*(barW+gap) + 8;
+              const y = height - h;
+              return (
+                <g key={p.date}>
+                  <rect x={x} y={y} width={barW} height={h} rx="3" ry="3" fill="#f59e0b" />
+                  {/* etiqueta cada 5 días */}
+                  {i%5===0 && (
+                    <text x={x-6} y={height+14} fontSize="10" fill="#999">{p.date.slice(5)}</text>
+                  )}
+                </g>
+              );
+            })}
+          </g>
+        </svg>
+      </div>
+    );
+  };
 
   return (
     <main className="grid" style={{gap:16}}>
       <div className="card">
         <h2>Dashboard de ventas</h2>
 
-        {/* KPIs */}
-        <div className="grid cols-4" style={{marginTop:8}}>
-          <KPI title="Ventas (rango)" value={fmt(kpis.total)}/>
-          <KPI title="Órdenes (rango)" value={kpis.orders}/>
-          <KPI title="Ticket promedio" value={fmt(kpis.avg)}/>
-          <div className="kpi">
-            <div className="kpi-title">Hoy vs meta</div>
-            <div className="kpi-value">{fmt(kpis.todayTotal)} <span className="muted">/ {fmt(DAILY_GOAL)}</span></div>
-            <div className="progress"><span style={{width:`${kpis.goalPct}%`}}/></div>
-            <div className="muted">{kpis.goalPct}% — Faltan {fmt(kpis.remaining)}</div>
+        <div style={{display:'grid', gridTemplateColumns:'repeat(4,minmax(0,1fr))', gap:12}}>
+          <div className="card">
+            <div>Ventas (rango)</div>
+            <div style={{fontWeight:700}}>B/. {totalRange.toFixed(2)}</div>
+          </div>
+          <div className="card">
+            <div>Órdenes (rango)</div>
+            <div style={{fontWeight:700}}>{orders}</div>
+          </div>
+          <div className="card">
+            <div>Ticket promedio</div>
+            <div style={{fontWeight:700}}>B/. {avgTicket.toFixed(2)}</div>
+          </div>
+          <div className="card">
+            <div>Hoy vs meta</div>
+            <div style={{fontWeight:700}}>B/. {today.toFixed(2)} / B/. {DAILY_GOAL.toFixed(2)}</div>
+            <div className="progress" style={{marginTop:6}}><span style={{width:`${goalPct}%`}}/></div>
+            <div style={{fontSize:12, color:'var(--muted)'}}>{goalPct}% — Faltan B/. {remaining.toFixed(2)}</div>
           </div>
         </div>
 
-        {/* Gráfica diaria (barras) */}
-        <div className="card" style={{marginTop:12}}>
-          <h3>Ventas por día</h3>
-          <DailyBars data={daily}/>
+        <div style={{display:'flex', gap:8, alignItems:'center', margin:'12px 0'}}>
+          <label>Desde</label>
+          <input type="date" className="input" value={from} onChange={e=>setFrom(e.target.value)} />
+          <label>Hasta</label>
+          <input type="date" className="input" value={to} onChange={e=>setTo(e.target.value)} />
+          <button className="btn" onClick={load} disabled={loading}>Refrescar</button>
         </div>
 
-        {/* Métodos de pago */}
-        <div className="card" style={{marginTop:12}}>
-          <h3>Desglose por método</h3>
-          <div className="hbars">
-            {byMethod.map(m=>(
-              <div key={m.method} className="hbar-row">
-                <div className="hbar-label">{m.method}</div>
-                <div className="hbar-track"><span style={{width:`${byMethod[0].total? (m.total/byMethod[0].total)*100 : 0}%`}}/></div>
-                <div className="hbar-val">{fmt(m.total)}</div>
-              </div>
-            ))}
-            {byMethod.length===0 && <div className="muted">Sin ventas en el rango.</div>}
-          </div>
-        </div>
-
-        {/* Top productos */}
-        <div className="card" style={{marginTop:12}}>
-          <h3>Top productos</h3>
-          <table className="table">
-            <thead><tr><th>Producto</th><th>Cantidad</th><th>Ingresos</th></tr></thead>
-            <tbody>
-              {topProducts.map(p=>(
-                <tr key={p.product_id}>
-                  <td>{prodNames[p.product_id] || p.product_id}</td>
-                  <td>{Number(p.qty).toFixed(0)}</td>
-                  <td>{fmt(p.revenue)}</td>
-                </tr>
-              ))}
-              {topProducts.length===0 && <tr><td colSpan={3} className="muted">Sin datos</td></tr>}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Filtros de fechas */}
-        <div className="grid cols-3" style={{alignItems:'end', marginTop:12}}>
-          <div><div>Desde</div><input className="input" type="date" value={from} onChange={e=>setFrom(e.target.value)}/></div>
-          <div><div>Hasta</div><input className="input" type="date" value={to} onChange={e=>setTo(e.target.value)}/></div>
-          <div><button className="btn" onClick={load} disabled={loading}>{loading?'Cargando…':'Refrescar'}</button></div>
-        </div>
+        {loading ? <div className="card">Cargando…</div> : <Chart />}
       </div>
     </main>
-  );
-}
-
-/* ====== UI helpers ====== */
-function KPI({ title, value }) {
-  return (
-    <div className="kpi">
-      <div className="kpi-title">{title}</div>
-      <div className="kpi-value">{value}</div>
-    </div>
-  );
-}
-
-function DailyBars({ data }) {
-  if (!data || data.length===0) return <div className="muted">Sin datos</div>;
-  const max = Math.max(...data.map(d=>d.total), 1);
-  return (
-    <div className="daily-chart">
-      {data.map(d=>(
-        <div key={d.date} className="bar">
-          <div className="bar-fill" style={{height:`${(d.total/max)*100}%`}} title={`${d.date}: B/. ${Number(d.total).toFixed(2)}`}/>
-          <div className="bar-x">{d.date.slice(5)}</div>
-        </div>
-      ))}
-    </div>
   );
 }
