@@ -1,98 +1,148 @@
-// app/users/page.js
 'use client';
 
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 
+/**
+ * Página de Usuarios (sólo ADMIN)
+ * - NO redirige al POS. Si no eres admin, muestra un aviso.
+ * - Lista usuarios (tabla profiles) y permite cambiar rol.
+ *
+ * Requisitos:
+ *  - Tabla public.profiles { id, uid, email, role, created_at }
+ *  - RLS que permita al admin leer/escribir (ya lo tienes).
+ */
 export default function UsersPage() {
-  const [me, setMe] = useState(null);
+  const [session, setSession] = useState(null);
+  const [role, setRole] = useState(null);     // rol del que está logeado
+  const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
-  const [email, setEmail] = useState('');
-  const [role, setRole] = useState('staff');
-  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
 
+  // Cargar sesión + rol del usuario actual
   useEffect(() => {
+    let mounted = true;
     (async () => {
-      // quién soy y mi perfil
-      const { data: { session } } = await supabase.auth.getSession();
-      const uid = session?.user?.id;
-      if (!uid) {
-        window.location.href = '/login';
+      setLoading(true);
+      setErr('');
+      const { data: sdata } = await supabase.auth.getSession();
+      const ses = sdata?.session || null;
+      if (!mounted) return;
+      setSession(ses);
+
+      if (!ses) {
+        setLoading(false);
         return;
       }
-      const { data: my } = await supabase.from('profiles').select('uid,email,role').eq('uid', uid).maybeSingle();
-      setMe(my || null);
-      if (my?.role !== 'admin') {
-        // no admin → volver al POS
-        window.location.href = '/';
-        return;
-      }
-      load();
+      const { data: prof, error: eP } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('uid', ses.user.id)
+        .maybeSingle();
+      if (eP) setErr(eP.message);
+      setRole(prof?.role || null);
+
+      setLoading(false);
     })();
+    return () => { mounted = false; };
   }, []);
 
-  async function load() {
-    const { data, error } = await supabase
+  // Cargar listado de perfiles (sólo si admin)
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (role !== 'admin') return;
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, uid, email, role, created_at')
+        .order('created_at', { ascending: false });
+      if (!mounted) return;
+      if (error) setErr(error.message);
+      setRows(data || []);
+    })();
+    return () => { mounted = false; };
+  }, [role]);
+
+  const changeRole = async (uid, newRole) => {
+    const prev = rows.slice();
+    setRows(rows.map(r => r.uid === uid ? { ...r, role: newRole } : r));
+    const { error } = await supabase
       .from('profiles')
-      .select('uid,email,role,created_at')
-      .order('created_at', { ascending: false });
-    if (!error) setRows(data||[]);
+      .update({ role: newRole })
+      .eq('uid', uid);
+    if (error) {
+      setRows(prev);
+      alert('Error actualizando rol: ' + error.message);
+    }
+  };
+
+  if (loading) {
+    return <main className="container"><div className="card">Cargando…</div></main>;
   }
 
-  async function createProfile() {
-    setMsg('');
-    if (!email) return;
-    // crea/actualiza fila en profiles (cuando la persona se registre, se fusiona por email)
-    const { error } = await supabase.from('profiles')
-      .upsert({ email, role }, { onConflict: 'email' });
-    if (error) setMsg(error.message);
-    else { setMsg('Perfil creado/actualizado.'); setEmail(''); setRole('staff'); load(); }
-  }
-
-  async function changeRole(uid, newRole) {
-    const { error } = await supabase.from('profiles').update({ role: newRole }).eq('uid', uid);
-    if (!error) load();
-  }
-
-  return (
-    <main className="card">
-      <h2>Usuarios</h2>
-
-      <div className="card" style={{marginBottom:12}}>
-        <h3>Crear / invitar</h3>
-        <div className="grid cols-3">
-          <input className="input" placeholder="email@ejemplo.com" value={email} onChange={e=>setEmail(e.target.value)} />
-          <select className="input" value={role} onChange={e=>setRole(e.target.value)}>
-            <option value="staff">staff</option>
-            <option value="admin">admin</option>
-          </select>
-          <button className="btn" onClick={createProfile}>Guardar</button>
+  // Si NO logeado:
+  if (!session) {
+    return (
+      <main className="container">
+        <div className="card">
+          <h2>Usuarios</h2>
+          <div className="muted">Debes iniciar sesión para ver esta sección.</div>
         </div>
-        {msg && <div style={{marginTop:8}}>{msg}</div>}
-        <p style={{marginTop:8,opacity:.7}}>
-          Tip: crea aquí el perfil y luego registra al usuario en <em>Auth → Add user</em> en Supabase (o que se registre con ese email).
-        </p>
-      </div>
+      </main>
+    );
+  }
 
+  // Si logeado pero NO admin: NO redirigimos; sólo informamos
+  if (role !== 'admin') {
+    return (
+      <main className="container">
+        <div className="card">
+          <h2>Usuarios</h2>
+          <div className="muted">No tienes permisos para ver esta sección.</div>
+        </div>
+      </main>
+    );
+  }
+
+  // Vista ADMIN
+  return (
+    <main className="container">
       <div className="card">
-        <h3>Listado</h3>
-        <table className="table">
-          <thead><tr><th>Email</th><th>Rol</th><th>Creado</th></tr></thead>
-          <tbody>
-            {rows.map(r=>(
-              <tr key={r.uid || r.email}>
-                <td>{r.email}</td>
-                <td>
-                  <select className="input" value={r.role||'staff'} onChange={e=>changeRole(r.uid, e.target.value)}>
-                    <option value="staff">staff</option>
-                    <option value="admin">admin</option>
-                  </select>
-                </td>
-                <td>{r.created_at?.slice(0,10) || ''}</td>
+        <h2>Usuarios</h2>
+        {err && <div style={{color:'salmon', marginBottom:12}}>{err}</div>}
+
+        {rows.length === 0 ? (
+          <div className="muted">Sin registros.</div>
+        ) : (
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Rol</th>
+                <th>Creado</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.id}>
+                  <td>{r.email || '—'}</td>
+                  <td style={{display:'flex',alignItems:'center',gap:8}}>
+                    <select
+                      className="input"
+                      value={r.role || 'staff'}
+                      onChange={e => changeRole(r.uid, e.target.value)}
+                      style={{maxWidth:200}}
+                    >
+                      <option value="admin">admin</option>
+                      <option value="staff">staff</option>
+                    </select>
+                  </td>
+                  <td>{new Date(r.created_at).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </main>
   );
