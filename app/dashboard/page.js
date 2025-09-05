@@ -1,139 +1,117 @@
+// app/dashboard/page.js
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 
-const DAILY_GOAL = Number(process.env.NEXT_PUBLIC_DAILY_GOAL || 220);
-
-// util fecha local YYYY-MM-DD
-function dstr(d=new Date()) {
-  const off = d.getTimezoneOffset()*60000;
-  return new Date(d - off).toISOString().slice(0,10);
-}
-function addDays(base, n) {
-  const d = new Date(base); d.setDate(d.getDate()+n); return d;
-}
+function ymd(d) { return new Date(d - d.getTimezoneOffset()*60000).toISOString().slice(0,10); }
 
 export default function Dashboard() {
-  const [from, setFrom] = useState(dstr(addDays(new Date(), -30)));
-  const [to, setTo] = useState(dstr(new Date()));
+  const today = ymd(new Date());
+  const monthAgo = ymd(new Date(Date.now()-29*864e5));
+
+  const [from, setFrom] = useState(monthAgo);
+  const [to, setTo] = useState(today);
   const [rows, setRows] = useState([]);
-  const [today, setToday] = useState(0);
-  const [loading, setLoading] = useState(true);
 
-  const load = async () => {
-    setLoading(true);
-    // ventas del rango
-    const { data: daily } = await supabase.rpc('sales_by_day', { p_from: from, p_to: to }); 
-    // si no tienes sales_by_day, puedes usar:
-    // const { data: daily } = await supabase.from('sales')
-    //   .select('sale_date, total').gte('sale_date', from).lte('sale_date', to);
+  async function load() {
+    const { data, error } = await supabase
+      .from('sales')
+      .select('sale_date,total')
+      .gte('sale_date', from)
+      .lte('sale_date', to)
+      .order('sale_date', { ascending: true });
+    if (!error) setRows(data || []);
+  }
 
-    setRows(daily || []);
-    // hoy
-    const { data: t } = await supabase.from('sales').select('total').eq('sale_date', dstr()).returns();
-    const todaySum = (t||[]).reduce((s,r)=>s+Number(r.total||0),0);
-    setToday(todaySum);
-    setLoading(false);
-  };
+  useEffect(()=>{ load(); }, []); // first load
+  const refresh = ()=>load();
 
-  useEffect(()=>{ load(); }, [from, to]);
-
-  // normaliza datos por fecha
-  const points = useMemo(()=>{
-    // construir mapa del rango con 0
+  const byDay = useMemo(()=>{
     const map = new Map();
-    let d = new Date(from);
-    const end = new Date(to);
-    while (d <= end) {
-      map.set(dstr(d), 0);
-      d = addDays(d, 1);
-    }
     for (const r of rows) {
-      const key = r.sale_date || r.date || r.day;
-      const val = Number(r.total || r.sum || r.amount || 0);
-      if (map.has(key)) map.set(key, (map.get(key)||0) + val);
+      const k = r.sale_date;
+      map.set(k, (map.get(k)||0) + Number(r.total||0));
     }
-    return Array.from(map.entries()).map(([date, total])=>({ date, total }));
+    const out=[];
+    // build continuous axis
+    const start = new Date(from);
+    const end = new Date(to);
+    for (let d=new Date(start); d<=end; d.setDate(d.getDate()+1)) {
+      const k = ymd(new Date(d));
+      out.push({ day:k, total: +(map.get(k)||0).toFixed(2) });
+    }
+    return out;
   }, [rows, from, to]);
 
-  const totalRange = points.reduce((s,p)=>s+p.total,0);
+  const sum = rows.reduce((s,r)=>s+Number(r.total||0),0);
   const orders = rows.length;
-  const avgTicket = orders ? (totalRange / orders) : 0;
-  const goalPct = Math.min(100, Math.round((today / DAILY_GOAL) * 100));
-  const remaining = Math.max(0, DAILY_GOAL - today);
+  const avg = orders? sum/orders : 0;
 
-  // simple bar chart SVG
-  const Chart = () => {
-    const width = Math.max(600, points.length * 18);
-    const height = 220;
-    const max = Math.max(10, ...points.map(p=>p.total));
-    const barW = 12;
-    const gap = 6;
-    const pad = 24;
+  const DAILY_GOAL = Number(process.env.NEXT_PUBLIC_DAILY_GOAL || 220);
+  const todayTotal = rows.filter(r=>r.sale_date===today).reduce((s,r)=>s+Number(r.total||0),0);
+  const pct = Math.min(100, Math.round((todayTotal/DAILY_GOAL)*100));
 
-    return (
-      <div style={{overflowX:'auto'}}>
-        <svg width={width+pad*2} height={height+pad*2}>
-          <g transform={`translate(${pad},${pad})`}>
-            {/* eje y */}
-            <line x1="0" y1="0" x2="0" y2={height} stroke="#ddd" />
-            {/* barras */}
-            {points.map((p, i) => {
-              const h = Math.round((p.total / max) * (height-10));
-              const x = i*(barW+gap) + 8;
-              const y = height - h;
-              return (
-                <g key={p.date}>
-                  <rect x={x} y={y} width={barW} height={h} rx="3" ry="3" fill="#f59e0b" />
-                  {/* etiqueta cada 5 días */}
-                  {i%5===0 && (
-                    <text x={x-6} y={height+14} fontSize="10" fill="#999">{p.date.slice(5)}</text>
-                  )}
-                </g>
-              );
-            })}
-          </g>
-        </svg>
-      </div>
-    );
-  };
+  // chart sizes
+  const max = Math.max(1, ...byDay.map(d=>d.total));
+  const W = 860;
+  const H = 220;
+  const barW = Math.max(4, Math.floor(W/byDay.length)-2);
 
   return (
-    <main className="grid" style={{gap:16}}>
-      <div className="card">
-        <h2>Dashboard de ventas</h2>
+    <main className="card">
+      <h2>Dashboard de ventas</h2>
 
-        <div style={{display:'grid', gridTemplateColumns:'repeat(4,minmax(0,1fr))', gap:12}}>
-          <div className="card">
-            <div>Ventas (rango)</div>
-            <div style={{fontWeight:700}}>B/. {totalRange.toFixed(2)}</div>
-          </div>
-          <div className="card">
-            <div>Órdenes (rango)</div>
-            <div style={{fontWeight:700}}>{orders}</div>
-          </div>
-          <div className="card">
-            <div>Ticket promedio</div>
-            <div style={{fontWeight:700}}>B/. {avgTicket.toFixed(2)}</div>
-          </div>
-          <div className="card">
-            <div>Hoy vs meta</div>
-            <div style={{fontWeight:700}}>B/. {today.toFixed(2)} / B/. {DAILY_GOAL.toFixed(2)}</div>
-            <div className="progress" style={{marginTop:6}}><span style={{width:`${goalPct}%`}}/></div>
-            <div style={{fontSize:12, color:'var(--muted)'}}>{goalPct}% — Faltan B/. {remaining.toFixed(2)}</div>
-          </div>
+      <div className="grid cols-4" style={{marginBottom:16}}>
+        <div className="card stat"><div>Ventas (rango)</div><strong>B/. {sum.toFixed(2)}</strong></div>
+        <div className="card stat"><div>Órdenes (rango)</div><strong>{orders}</strong></div>
+        <div className="card stat"><div>Ticket promedio</div><strong>B/. {avg.toFixed(2)}</strong></div>
+        <div className="card stat">
+          <div>Hoy vs meta</div>
+          <strong>B/. {todayTotal.toFixed(2)} / B/. {DAILY_GOAL.toFixed(2)}</strong>
+          <div className="progress"><span style={{width:`${pct}%`}}/></div>
         </div>
+      </div>
 
-        <div style={{display:'flex', gap:8, alignItems:'center', margin:'12px 0'}}>
-          <label>Desde</label>
-          <input type="date" className="input" value={from} onChange={e=>setFrom(e.target.value)} />
-          <label>Hasta</label>
-          <input type="date" className="input" value={to} onChange={e=>setTo(e.target.value)} />
-          <button className="btn" onClick={load} disabled={loading}>Refrescar</button>
+      <div className="grid cols-3" style={{alignItems:'end', gap:12, marginBottom:8}}>
+        <div>
+          <div>Desde</div>
+          <input className="input" type="date" value={from} onChange={e=>setFrom(e.target.value)} />
         </div>
+        <div>
+          <div>Hasta</div>
+          <input className="input" type="date" value={to} onChange={e=>setTo(e.target.value)} />
+        </div>
+        <div>
+          <div>&nbsp;</div>
+          <button className="btn" onClick={refresh}>Refrescar</button>
+        </div>
+      </div>
 
-        {loading ? <div className="card">Cargando…</div> : <Chart />}
+      {/* Gráfica de barras (SVG) */}
+      <div className="card" style={{overflowX:'auto'}}>
+        <svg width={Math.max(W, byDay.length*(barW+2))} height={H+40}>
+          {/* ejes */}
+          <line x1="40" y1="10" x2="40" y2={H} stroke="currentColor" opacity=".2"/>
+          <line x1="40" y1={H} x2={Math.max(W, byDay.length*(barW+2))} y2={H} stroke="currentColor" opacity=".2"/>
+          {/* barras */}
+          {byDay.map((d, i)=>{
+            const h = Math.round((d.total/max)* (H-20));
+            const x = 42 + i*(barW+2);
+            const y = H - h;
+            return (
+              <g key={d.day}>
+                <rect x={x} y={y} width={barW} height={h} rx="3" />
+                {i%4===0 && (
+                  <text x={x} y={H+14} fontSize="10">{d.day.slice(5)}</text>
+                )}
+              </g>
+            );
+          })}
+          {/* labels de referencia */}
+          <text x="0" y="20" fontSize="10">B/. {max.toFixed(2)}</text>
+          <text x="0" y={H} fontSize="10">0</text>
+        </svg>
       </div>
     </main>
   );
